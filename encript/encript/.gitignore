@@ -1,0 +1,6 @@
+*.exe
+*.stackdump
+*encrypt*
+.dep.inc
+Makefile
+nbproject/

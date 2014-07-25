@@ -87,7 +87,7 @@ init([]) ->
 %%-------------------------------------------------------------------------
 'WAIT_FOR_SOCKET'({socket_ready, Socket, H_name}, State) when is_port(Socket) ->
     % Now we own the socket
-	io:format("~p WAIT_FOR_SOCKET\n", [self()]),
+	%io:format("~p WAIT_FOR_SOCKET\n", [self()]),
     inet:setopts(Socket, [{active, once}, binary]),
 	
     {next_state, 'WAIT_FOR_DATA', State#state{socket=Socket, host_name=H_name, count_message=0}, ?TIMEOUT};
@@ -99,17 +99,17 @@ init([]) ->
  
 %% Notification event coming from client
 'WAIT_FOR_DATA'({data, Data}, #state{socket=S} = State) ->
-	io:format("~p WAIT_FOR_DATA\n", [self()]),
+	%io:format("~p WAIT_FOR_DATA\n", [self()]),
 	%io:format("~p data: ~p\n", [self(), Data]),
 	case tcp_lib:is_post_req(Data) of
         true -> 
-			io:format("~p is POST\n", [self()]),
+			%io:format("~p is POST\n", [self()]),
 			inet:setopts(S, [{active, false}, binary]),
 			?MODULE:'POST_ANSWER'({data, Data}, State);
         false ->  
 			case re:run(Data, "Sec-WebSocket-Key:[\s]{0,1}(.*)\r\n",[global,{capture,[1],list}]) of
 		        {match, Res} -> 
-		        	io:format("~p is Handshake\n", [self()]),
+		        	%io:format("~p is Handshake\n", [self()]),
 					{ok, B_all_answ} = get_awsw_key(Res);
 		        nomatch ->  
 					B_all_answ = Data
@@ -122,14 +122,14 @@ init([]) ->
     error_logger:error_msg("~p Client connection timeout - closing.\n", [self()]),
     {stop, normal, State};
  
-'WAIT_FOR_DATA'(Data, State) ->
-    io:format("~p Ignoring data: ~p\n", [self(), Data]),
+'WAIT_FOR_DATA'(_Data, State) ->
+    %io:format("~p Ignoring data: ~p\n", [self(), Data]),
     {next_state, 'WAIT_FOR_DATA', State, ?TIMEOUT}.
 
-'WAIT_LOGIN_MESSAGE'({data, Bin}, #state{socket=S, host_name=H_name, login=OldLogin} = State) ->
- 	io:format("~p WAIT_LOGIN_MESSAGE\n", [self()]),
+'WAIT_LOGIN_MESSAGE'({data, Bin}, #state{socket=S, host_name=H_name} = State) ->
+ 	%io:format("~p WAIT_LOGIN_MESSAGE\n", [self()]),
 	{ok, Data} =  handle_data(Bin),
-	io:format("~p User login: ~p\n", [self(), Data]),
+	%io:format("~p User login: ~p\n", [self(), Data]),
 	%io:format("~p User addr: ~p\n", [self(), Address]),
 	%io:format("~p User host: ~p\n", [self(), H_name]),
  	
@@ -141,12 +141,12 @@ init([]) ->
 			case Login of
 				false ->
 					tcp_listener:delete_user_pid(self(), Login),
-		    		io:format("~p Client ~p disconnected.\n", [self(), OldLogin]),
+		    		%io:format("~p Client ~p disconnected.\n", [self(), OldLogin]),
 					{stop, normal, State};
 				_ ->
-					io:format("~p User full login: ~p\n", [self(), Login]),
-					io:format("~p User exists: ~p\n", [self(), tcp_listener:is_user_exists(binary_to_atom(Data, utf8))]),
-					io:format("~p Domain ~p exists: ~p\n", [self(), H_name, tcp_listener:is_user_domain_exists(binary_to_atom(Data, utf8), H_name)]),
+					%io:format("~p User full login: ~p\n", [self(), Login]),
+					%io:format("~p User exists: ~p\n", [self(), tcp_listener:is_user_exists(binary_to_atom(Data, utf8))]),
+					%io:format("~p Domain ~p exists: ~p\n", [self(), H_name, tcp_listener:is_user_domain_exists(binary_to_atom(Data, utf8), H_name)]),
 					
 					case tcp_listener:is_user_domain_exists(binary_to_atom(Data, utf8), list_to_binary(lists:flatten(H_name))) of
 						{ok,true} ->
@@ -229,12 +229,12 @@ init([]) ->
 							 				%поэтому сделаем case
 							 				case is_pid(Pid) of
 							 					true ->
-							 						io:format("~p send message ~p to: ~p\n", [self(), To_data, Pid]),
+							 						%io:format("~p send message ~p to: ~p\n", [self(), To_data, Pid]),
 							 						Pid ! {new_message, To_data},
 													{ok, Frame} = mask(<<"ok">>),
 													ok = gen_tcp:send(S, Frame);
 												false ->
-													io:format("~p remove dead proc: ~p\n", [self(), Pid]),
+													%io:format("~p remove dead proc: ~p\n", [self(), Pid]),
 													tcp_listener:delete_user_pid(Pid, Login)
 							 				end
 							 		end, Pids),
@@ -260,7 +260,7 @@ init([]) ->
 	{next_state, 'WAIT_USER_MESSAGE', State#state{count_message=Cnt}};
 
 'WAIT_USER_MESSAGE'({new_message, Bin}, #state{socket=S} = State) ->
-	io:format("~p Message in handle: ~p\n", [self(), Bin]),
+	%io:format("~p Message in handle: ~p\n", [self(), Bin]),
 	#message{from=From, time=Time, text=Text} = Bin,
 	
 	To_data = #to_message{from=From, time=Time, text=Text},
@@ -271,7 +271,7 @@ init([]) ->
 	{next_state, 'WAIT_USER_MESSAGE', State}.
 
 'POST_ANSWER'({data, Data}, #state{socket=S} = State) ->
-	io:format("~p POST_ANSWER\n", [self()]),
+	%io:format("~p POST_ANSWER\n", [self()]),
 	
 	case re:run(Data, "Transport\: sokets", [global]) of
 		nomatch ->  
@@ -290,12 +290,12 @@ init([]) ->
 		false ->
 			Res = <<"unknow data type">>;
 		{ok, Qtype, StrJSON} ->
-			io:format("~p post type ~p\n", [self(), tcp_lib:convert_to_atom(Qtype)]),
+			%io:format("~p post type ~p\n", [self(), tcp_lib:convert_to_atom(Qtype)]),
 			JSON = 
 				try get_json_data(tcp_lib:convert_to_atom(Qtype), list_to_binary(StrJSON)) of
 					J -> J
-				catch  A:B -> 
-					io:format("~p error ~p:~p  \n", [self(), A, B]),
+				catch  _A:_B -> 
+					%io:format("~p error ~p:~p  \n", [self(), A, B]),
 					false
 				end,
 
@@ -305,8 +305,8 @@ init([]) ->
 				try 
 					action_on_user(JSON) of
 					R -> R
-				catch  C:D -> 
-					io:format("~p error ~p:~p  \n", [self(), C, D]),
+				catch  _C:_D -> 
+					%io:format("~p error ~p:~p  \n", [self(), C, D]),
 					<<"invalid_format_data">>
 				end
 	end,
@@ -321,7 +321,7 @@ init([]) ->
     	Res
     ],
 
-	io:format("~p send res ~p sock_r \n", [self(), Res]),
+	%io:format("~p send res ~p sock_r \n", [self(), Res]),
 	gen_tcp:send(S, list_to_binary(Answer)),
 	gen_tcp:close(S),
 
@@ -392,7 +392,7 @@ handle_info({tcp, Socket, Bin}, StateName, #state{socket=Socket} = StateData) ->
     % Flow control: enable forwarding of next TCP message
 	
     inet:setopts(Socket, [{active, once}]),
-	io:format("~p is GET\n", [self()]),
+	%io:format("~p is GET\n", [self()]),
    	?MODULE:StateName({data, Bin}, StateData);
     
  

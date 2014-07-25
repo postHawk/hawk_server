@@ -108,8 +108,8 @@ handle_call({rergister_user, Key, Id}, _From, #state{reg_users_data_tableId=Tabl
             case ets:lookup(MUTid, Login) of
                 [] ->
                     {array, List} = Host,
-                    ets:insert(MUTid, {Login, List}),
-                    io:format("~p add main data: ~p\n", [self(), {Login, List}]);
+                    ets:insert(MUTid, {Login, List});
+                    %io:format("~p add main data: ~p\n", [self(), {Login, List}]);
                 _ ->
                     true
             end,
@@ -119,8 +119,8 @@ handle_call({rergister_user, Key, Id}, _From, #state{reg_users_data_tableId=Tabl
             Key_t = binary_to_atom(Id, utf8) ,
             case ets:lookup(TableId, Key_t) of
                 [] ->
-                    ets:insert(TableId, {Key_t, Login}),
-                    io:format("~p register user: ~p\n", [self(), {Key_t, Login}]);
+                    ets:insert(TableId, {Key_t, Login});
+                    %io:format("~p register user: ~p\n", [self(), {Key_t, Login}]);
                 _ ->
                     true
             end,
@@ -142,8 +142,8 @@ handle_call({unregister_user, Key, Id}, _From, #state{reg_users_data_tableId=Tab
                 [] ->
                    true;
                 _ ->
-                    ets:delete(TableId, Key_t),
-                    io:format("~p remove user: ~p\n", [self(), Key_t])
+                    ets:delete(TableId, Key_t)
+                    %io:format("~p remove user: ~p\n", [self(), Key_t])
             end,
             
             Reply = ok
@@ -191,12 +191,12 @@ handle_call({add_domain, Key, Domain, Login}, _From, #state{main_user_data=MUTid
                     true;
                 [{_, Hosts}] ->
                     NewList = lists:append([Hosts, [Domain]]),
-                    io:format("~p add domain: ~p:~p all ~p\n", [self(), Login, Domain, NewList]),
+                    %io:format("~p add domain: ~p:~p all ~p\n", [self(), Login, Domain, NewList]),
                     ets:insert(MUTid, {Login, NewList})
             end,
             Res = ok;
         true ->
-            io:format("~p invalid api key erl: ~p php ~p\n", [self(), Kur_key, Key]),
+            %io:format("~p invalid api key erl: ~p php ~p\n", [self(), Kur_key, Key]),
             Res = false
     end,
 
@@ -211,7 +211,7 @@ handle_call({del_domain, Key, Domain, Login}, _From, #state{main_user_data=MUTid
                     true;
                 [{_, Hosts}] ->
                     NewList = lists:delete(Domain, Hosts),
-                    io:format("~p remove domain: ~p Remaining ~p\n", [self(), Domain, NewList]),
+                    %io:format("~p remove domain: ~p Remaining ~p\n", [self(), Domain, NewList]),
                     ets:insert(MUTid, {Login, NewList})
             end,
             Res = ok;
@@ -225,11 +225,11 @@ handle_call({register_pid, Pid, Login}, _From, #state{users_pid_tableId=TableId}
 
     case ets:lookup(TableId, Login) of
         [] ->
-            io:format("~p register new user: ~p:~p\n", [self(), Login, Pid]),
+            %io:format("~p register new user: ~p:~p\n", [self(), Login, Pid]),
             ets:insert(TableId, {Login, [Pid]});
         [{Key, List}] ->
             NewList = lists:append([List, [Pid]]),
-            io:format("~p add user pid: ~p:~p to ~p, all pid ~p\n", [self(), Key, Pid, List, NewList]),
+            %io:format("~p add user pid: ~p:~p to ~p, all pid ~p\n", [self(), Key, Pid, List, NewList]),
             ets:insert(TableId, {Key, NewList})
     end,
     {reply, ok, State};
@@ -240,7 +240,7 @@ handle_call({unregister_pid, Pid, Login}, _From, #state{users_pid_tableId=TableI
            true;
         [{Key, List}] ->
             NewList = lists:delete(Pid, List),
-            io:format("~p remove user: ~p:~p Remaining ~p\n", [self(), Key, Pid, NewList]),
+            %io:format("~p remove user: ~p:~p Remaining ~p\n", [self(), Key, Pid, NewList]),
             ets:insert(TableId, {Key, NewList})
     end,
     {reply, ok, State};
@@ -248,21 +248,21 @@ handle_call({unregister_pid, Pid, Login}, _From, #state{users_pid_tableId=TableI
 handle_call({get_pids, Login}, _From, #state{users_pid_tableId=TableId, reg_users_data_tableId=TableHost, main_user_data=MUTid} = State) ->
     %находим домены пользователя
     Key = binary_to_atom(Login, utf8),
-    io:format("~p finded user: ~p login ~p\n", [self(), ets:lookup(TableHost, Key), Key]),
+    %io:format("~p finded user: ~p login ~p\n", [self(), ets:lookup(TableHost, Key), Key]),
     case ets:lookup(TableHost, Key) of
         [] -> 
             All = [];
         [{_, MLogin}] ->
-             io:format("~p main data: ~p\n", [self(), ets:lookup(MUTid, MLogin)]),
+            %io:format("~p main data: ~p\n", [self(), ets:lookup(MUTid, MLogin)]),
             case ets:lookup(MUTid, MLogin) of
                 [] -> 
                     All = [];
                 [{_, Hosts}] ->
-                    io:format("~p finded domain: ~p login ~p\n", [self(), Hosts, MLogin]),
+                    %io:format("~p finded domain: ~p login ~p\n", [self(), Hosts, MLogin]),
                     All = get_pids_by_hosts(Hosts, Login, TableId)
             end
     end,
-    io:format("~p finded user pids: ~p\n", [self(), All]),
+    %io:format("~p finded user pids: ~p\n", [self(), All]),
     {reply, All, State}.
    
 
@@ -317,14 +317,14 @@ handle_info({inet_async, ListSock, Ref, {ok, CliSocket}},
         end,
  
         %% New client connected - spawn a new process 
-		io:format("~p Conn info: ~p\n", [self(), inet:peername(CliSocket)]),
+		%io:format("~p Conn info: ~p\n", [self(), inet:peername(CliSocket)]),
 		{ok, GET_data} = gen_tcp:recv(CliSocket, 0),
 
         case tcp_lib:is_post_req(GET_data) of
             false -> 
         		case re:run(GET_data, "Origin\:\shttp\:\/\/(.*)\r\n",[global,{capture,[1],list}]) of
         	        {match, S_name} -> 
-        				io:format("~p matched: ~p\n", [self(), S_name]),
+        				%io:format("~p matched: ~p\n", [self(), S_name]),
         				true;
         	        nomatch ->  
         				{ok, {Address, Port}} = inet:peername(CliSocket),
@@ -359,8 +359,8 @@ handle_info({inet_async, ListSock, Ref, Error}, #state{listener=ListSock, accept
     error_logger:error_msg("Error in socket acceptor: ~p.\n", [Error]),
     {stop, Error, State};
  
-handle_info(Info, State) ->
-    io:format("unhandle req ~p", Info),
+handle_info(_Info, State) ->
+    %io:format("unhandle req ~p", Info),
     {noreply, State}.
  
 %%-------------------------------------------------------------------------

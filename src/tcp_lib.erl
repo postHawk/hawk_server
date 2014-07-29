@@ -11,7 +11,7 @@ get_ancestors(Pid) when is_pid(Pid) ->
 get_ancestors(undefined) ->
     [];
 get_ancestors(Name) when is_atom(Name) ->
-    get_ancestors(whereis(Name)).
+    get_ancestors(global:whereis_name(Name)).
 
 ancestors_from_dict([]) ->
     [];
@@ -22,7 +22,7 @@ ancestors_from_dict([_Head | Rest]) ->
 
 get_pid_process(Name) ->
 	A_n = convert_to_atom(Name),
-	case whereis(A_n) of
+	case global:whereis_name(A_n) of
 		undefined ->
 			{ok, false};
 		Pid ->
@@ -61,7 +61,7 @@ info(Pid) ->
 
 %можно немного оптимизировать так как is_pid вернёт тру, когда процес существует
 get_uniq_user_login(Login) when is_pid(Login); is_atom(Login) ->
-	case whereis(Login) of
+	case global:whereis_name(Login) of
 		undefined ->
 			Login;
 		_ ->
@@ -69,7 +69,7 @@ get_uniq_user_login(Login) when is_pid(Login); is_atom(Login) ->
 	end;
 get_uniq_user_login(Login) when is_list(Login); is_binary(Login) ->
 	NewLogin = convert_to_atom(Login),
-	case whereis(NewLogin) of
+	case global:whereis_name(NewLogin) of
 		undefined ->
 			NewLogin;
 		_ ->
@@ -79,7 +79,7 @@ get_uniq_user_login(Login) when is_list(Login); is_binary(Login) ->
 get_uniq_user_login(Login, Counter) ->
 	NewLoginStr = [Login, "_", Counter],
 	NewLogin = convert_to_atom(NewLoginStr),
-	case whereis(NewLogin) of
+	case global:whereis_name(NewLogin) of
 		undefined ->
 			NewLogin;
 		_ ->

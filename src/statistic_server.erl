@@ -40,7 +40,7 @@ init([]) ->
     {ok, #state{count_all_message=0, ets_table=TableId}}.
 
 start_link()  ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+    gen_server:start_link({global, ?MODULE}, ?MODULE, [], []).
 
 
 %% handle_call/3

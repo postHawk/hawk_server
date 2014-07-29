@@ -43,7 +43,8 @@
 %% @end
 %%----------------------------------------------------------------------
 start_link(Port, Module) when is_integer(Port), is_atom(Module) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Port, Module], []).
+%io:format("4\n"),
+    gen_server:start_link({global, ?MODULE}, ?MODULE, [Port, Module], []).
  
 %%%------------------------------------------------------------------------
 %%% Callback functions from gen_server
@@ -60,6 +61,7 @@ start_link(Port, Module) when is_integer(Port), is_atom(Module) ->
 %% @end
 %%----------------------------------------------------------------------
 init([Port, Module]) ->
+%io:format("5\n"),
     process_flag(trap_exit, true),
     Opts = [binary, {reuseaddr, true},
             {keepalive, true}, {backlog, 30}, {active, false}],
@@ -332,15 +334,13 @@ handle_info({inet_async, ListSock, Ref, {ok, CliSocket}},
         				S_name = string:to_lower(Hostname)
         	    end;
             true ->
-                S_name = "post_supervisor"
+                S_name = post_supervisor
         end,
-
         {ok, Pid} = tcp_server_app:start_domain_supervisor(tcp_lib:convert_to_atom(S_name)),
 		
         gen_tcp:controlling_process(CliSocket, Pid),
         %% Instruct the new FSM that it owns the socket.
         Module:set_socket(Pid, CliSocket, GET_data, S_name),
- 
         %% Signal the network driver that we are ready to accept another connection
         case prim_inet:async_accept(ListSock, -1) of
 	        {ok,    NewRef} 
@@ -414,28 +414,28 @@ get_user_by_key(Key) ->
     Mong:findOne(#users{key=Key}).
 	
 rergister_user(Key, Id) ->
-    gen_server:call(?MODULE, {rergister_user, Key, Id}).
+    gen_server:call({global, ?MODULE}, {rergister_user, Key, Id}).
 
 unregister_user(Key, Id) ->
-    gen_server:call(?MODULE, {unregister_user, Key, Id}).
+    gen_server:call({global, ?MODULE}, {unregister_user, Key, Id}).
 
 is_user_exists(Id) ->
-    gen_server:call(?MODULE, {check_user, Id}).
+    gen_server:call({global, ?MODULE}, {check_user, Id}).
 
 is_user_domain_exists(Id, Domain) ->
-    gen_server:call(?MODULE, {check_user_domain, Id, Domain}).    
+    gen_server:call({global, ?MODULE}, {check_user_domain, Id, Domain}).    
 
 add_user_pid(Pid, Login) when is_pid(Pid) ->
-    gen_server:call(?MODULE, {register_pid, Pid, Login}).
+    gen_server:call({global, ?MODULE}, {register_pid, Pid, Login}).
 
 delete_user_pid(Pid, Login) when is_pid(Pid) ->
-     gen_server:call(?MODULE, {unregister_pid, Pid, Login}).
+     gen_server:call({global, ?MODULE}, {unregister_pid, Pid, Login}).
 
 get_user_pids(Login) ->
-     gen_server:call(?MODULE, {get_pids, Login}).
+     gen_server:call({global, ?MODULE}, {get_pids, Login}).
 
 add_domain(Key, Domain, Login) ->
-     gen_server:call(?MODULE, {add_domain, Key, Domain, Login}).     
+     gen_server:call({global, ?MODULE}, {add_domain, Key, Domain, Login}).     
 
 del_domain(Key, Domain, Login) ->
-     gen_server:call(?MODULE, {del_domain, Key, Domain, Login}).    
+     gen_server:call({global, ?MODULE}, {del_domain, Key, Domain, Login}).    

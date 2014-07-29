@@ -24,7 +24,8 @@
 %% ====================================================================
 
 start_link() ->
-   supervisor:start_link(domain_sup, []).
+%io:format("6\n"),
+   supervisor:start_link({global, domain_sup}, ?MODULE, []).
 
 
 %% init/1

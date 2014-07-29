@@ -1,5 +1,5 @@
 -module(tcp_server_app).
--author('saleyn@gmail.com').
+-author('mbarulin@gmail.com').
  
 -behaviour(application).
  
@@ -16,26 +16,28 @@
 %% A startup function for spawning new client connection handling FSM.
 %% To be called by the TCP listener process.
 start_client(S_name) ->
-    supervisor:start_child(S_name, []).
+    supervisor:start_child({global, S_name}, []).
 
 start_domain_supervisor(Domain) ->
-	case whereis(Domain) of
-		undefined ->
-			{ok, Pid} = supervisor:start_child(tcp_client_sup, []),
-			unregister(domain_sup),
-			register(Domain, Pid);
-		_ ->
-			true
-	end,
+  %io:format("exist ~p\n", [global:whereis_name(Domain)]),
+  case global:whereis_name(Domain) of
+    undefined ->
+      {ok, Pid} = supervisor:start_child({global, tcp_client_sup}, []),
+      global:unregister_name(domain_sup),
+      global:register_name(Domain, Pid);
+    _ ->
+      true
+  end,
 	
-	start_client(Domain).
+start_client(Domain).
  
 %%----------------------------------------------------------------------
 %% Application behaviour callbacks
 %%----------------------------------------------------------------------
-start(_Type, _Args) ->
+start(_Type, [Args|_]) ->
+%io:format("2\n"),
     ListenPort = get_app_env(listen_port, ?DEF_PORT),
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [ListenPort, tcp_message_fsm]).
+    supervisor:start_link({global, ?MODULE}, ?MODULE, [ListenPort, Args]).
  
 stop(_S) ->
     ok.
@@ -44,6 +46,7 @@ stop(_S) ->
 %% Supervisor behaviour callbacks
 %%----------------------------------------------------------------------
 init([Port, Module]) ->
+%io:format("3\n"),
     {ok,
         {_SupFlags = {one_for_one, ?MAX_RESTART, ?MAX_TIME},
             [
@@ -57,7 +60,7 @@ init([Port, Module]) ->
               },
               % Client instance supervisor
               {   tcp_client_sup,
-                  {supervisor,start_link,[{local, tcp_client_sup}, ?MODULE, [Module]]},
+                  {supervisor,start_link,[{global, tcp_client_sup}, ?MODULE, [Module]]},
                   permanent,                               % Restart  = permanent | transient | temporary
                   infinity,                                % Shutdown = brutal_kill | int() >= 0 | infinity
                   supervisor,                              % Type     = worker | supervisor
@@ -76,12 +79,13 @@ init([Port, Module]) ->
     };
  
 init([Module]) ->
+%io:format("1\n"),
     {ok,
         {_SupFlags = {simple_one_for_one, ?MAX_RESTART, ?MAX_TIME},
             [
               % TCP Client
               {   domain_sup,                               % Id       = internal id
-                  {supervisor,start_link,[{local, domain_sup}, domain_sup, [Module]]},                  % StartFun = {M, F, A}
+                  {supervisor,start_link,[{global, domain_sup}, domain_sup, [Module]]},                  % StartFun = {M, F, A}
                   permanent,                               % Restart  = permanent | transient | temporary
                   infinity,                                    % Shutdown = brutal_kill | int() >= 0 | infinity
                   supervisor,                                  % Type     = worker | supervisor
@@ -105,3 +109,5 @@ get_app_env(Opt, Default) ->
         end
     end.
 	
+
+

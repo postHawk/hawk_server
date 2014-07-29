@@ -1,5 +1,5 @@
 -module(tcp_message_fsm).
--author('saleyn@gmail.com').
+-author('mbarulin@gmail.com').
  
 -behaviour(gen_fsm).
  
@@ -55,7 +55,8 @@
 %% @end
 %%-------------------------------------------------------------------------
 start_link() ->
-    gen_fsm:start_link(?MODULE, [], []).
+%io:format("7\n"),
+    gen_fsm:start_link({global, ?MODULE}, ?MODULE, [], []).
  
 set_socket(Pid, Socket, Data, Host) when is_pid(Pid), is_port(Socket) ->
     gen_fsm:send_event(Pid, {socket_ready, Socket, Host}),
@@ -74,6 +75,7 @@ set_socket(Pid, Socket, Data, Host) when is_pid(Pid), is_port(Socket) ->
 %% @private
 %%-------------------------------------------------------------------------
 init([]) ->
+%io:format("8\n"),
 	crypto:start(),
     process_flag(trap_exit, true),
     {ok, 'WAIT_FOR_SOCKET', #state{}}.
@@ -193,6 +195,10 @@ init([]) ->
 			{next_state, 'WAIT_LOGIN_MESSAGE', State}
 	end.
 
+%check_login(Login) -> when check_login_format(Data) ->
+
+
+
 
 'WAIT_USER_MESSAGE'({data, Bin}, #state{socket=S, host_name=H_name, curent_login=CurentLogin, count_message=OldCnt} = State) ->
 	{ok, Data} =  handle_data(Bin),
@@ -206,7 +212,6 @@ init([]) ->
 		{message, From, To, Time, Text} -> 
 			%%io:format("~p User message: ~p\n", [self(), J_data]);
 			To_data = #message{from=From, to=To, time=Time, text=Text},
-			
 			Login = tcp_lib:get_login([H_name, "_", To]),
 
 			%запрещаем отправку сообщение самому себе

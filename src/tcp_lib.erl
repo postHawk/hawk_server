@@ -34,9 +34,9 @@ rename_process(From, To) ->
 	A_t = convert_to_atom(To),
 	case get_pid_process(A_f) of
 		{ok, P_from} ->
-			unregister(A_f)
+			global:unregister_name(A_f)
 	end,			
-	register(A_t, P_from),
+	global:register_name(A_t, P_from),
 	ok.
 
 convert_to_atom(Value) when is_atom(Value) ->
@@ -65,7 +65,7 @@ get_uniq_user_login(Login) when is_pid(Login); is_atom(Login) ->
 		undefined ->
 			Login;
 		_ ->
-			get_uniq_user_login(Login, 0)
+			get_uniq_user_login(Login, 1)
 	end;
 get_uniq_user_login(Login) when is_list(Login); is_binary(Login) ->
 	NewLogin = convert_to_atom(Login),
@@ -73,17 +73,19 @@ get_uniq_user_login(Login) when is_list(Login); is_binary(Login) ->
 		undefined ->
 			NewLogin;
 		_ ->
-			get_uniq_user_login(Login, 0)
+			get_uniq_user_login(Login, 1)
 	end.
 
 get_uniq_user_login(Login, Counter) ->
-	NewLoginStr = [Login, "_", Counter],
+	NewLoginStr = [Login, "_u", integer_to_list(Counter)],
+	%io:format("~p new login str ~p\n", [self(), NewLoginStr]),	
 	NewLogin = convert_to_atom(NewLoginStr),
+	%io:format("~p new login atom ~p\n", [self(), NewLogin]),
 	case global:whereis_name(NewLogin) of
 		undefined ->
 			NewLogin;
 		_ ->
-			get_uniq_user_login(NewLoginStr, Counter+1)
+			get_uniq_user_login(Login, Counter+1)
 	end. 
 
 get_login(Login) ->
@@ -119,7 +121,29 @@ split_json_by_part(Str) ->
 is_post_req(Data) ->
 	case re:run(Data, "^POST \/ HTTP\/1.1\r\n") of
         {match, _} -> 
-			true;
+			post;
         nomatch ->  
-			false
+			get
+    end.
+
+send_message({ok, Frame}, S) ->
+	case erlang:port_info(S) of
+		undefined ->
+			true;
+		_ -> 
+			ok = gen_tcp:send(S, Frame)
+	end.
+
+pid_2_name(Pid) ->
+    case ets:lookup(global_pid_names, Pid) of
+		[{Pid, Name}] -> 
+		    if node(Pid) == node() ->
+		    	case is_process_alive(Pid) of
+					true -> Name;
+					false -> undefined
+		    	end;
+		    true ->
+		    	Name
+		    end;
+		[] -> undefined
     end.

@@ -3,3 +3,4 @@ code:add_patha("mongodb/ebin/").
 code:add_patha("ehttph/ebin/").
 application:start (erlmongo).
 application:start (tcp_server).
+crypto:start().

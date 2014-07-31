@@ -24,7 +24,7 @@
 
 -include("jsonerl.hrl").
 
--record(message, {from, to, time, text}).
+-record(message, {from, to, time, text, group}).
 -record(to_message, {from, time, text}).
 -record(register_user, {key, id}).
 -record(unregister_user, {key, id}).
@@ -56,7 +56,7 @@
 %%-------------------------------------------------------------------------
 start_link() ->
 %io:format("7\n"),
-    gen_fsm:start_link({global, ?MODULE}, ?MODULE, [], []).
+    gen_fsm:start_link({global, tcp_lib:get_uniq_user_login(worker)}, ?MODULE, [], []).
  
 set_socket(Pid, Socket, Data, Host) when is_pid(Pid), is_port(Socket) ->
     gen_fsm:send_event(Pid, {socket_ready, Socket, Host}),
@@ -76,7 +76,7 @@ set_socket(Pid, Socket, Data, Host) when is_pid(Pid), is_port(Socket) ->
 %%-------------------------------------------------------------------------
 init([]) ->
 %io:format("8\n"),
-	crypto:start(),
+	global:unregister_name(tcp_lib:pid_2_name(self())),
     process_flag(trap_exit, true),
     {ok, 'WAIT_FOR_SOCKET', #state{}}.
  
@@ -98,27 +98,13 @@ init([]) ->
     error_logger:error_msg("State: 'WAIT_FOR_SOCKET'. Unexpected message: ~p\n", [Other]),
     %% Allow to receive async messages
     {next_state, 'WAIT_FOR_SOCKET', State}.
- 
+
+ %===============================================
 %% Notification event coming from client
-'WAIT_FOR_DATA'({data, Data}, #state{socket=S} = State) ->
+'WAIT_FOR_DATA'({data, Data}, State) ->
 	%io:format("~p WAIT_FOR_DATA\n", [self()]),
 	%io:format("~p data: ~p\n", [self(), Data]),
-	case tcp_lib:is_post_req(Data) of
-        true -> 
-			%io:format("~p is POST\n", [self()]),
-			inet:setopts(S, [{active, false}, binary]),
-			?MODULE:'POST_ANSWER'({data, Data}, State);
-        false ->  
-			case re:run(Data, "Sec-WebSocket-Key:[\s]{0,1}(.*)\r\n",[global,{capture,[1],list}]) of
-		        {match, Res} -> 
-		        	%io:format("~p is Handshake\n", [self()]),
-					{ok, B_all_answ} = get_awsw_key(Res);
-		        nomatch ->  
-					B_all_answ = Data
-		    end,
-			ok = gen_tcp:send(S, B_all_answ),
-			{next_state, 'WAIT_LOGIN_MESSAGE', State#state{count_message=0}}
-    end;
+	handle_req_by_type(tcp_lib:is_post_req(Data), Data, State);
 		 
 'WAIT_FOR_DATA'(timeout, State) ->
     error_logger:error_msg("~p Client connection timeout - closing.\n", [self()]),
@@ -128,78 +114,82 @@ init([]) ->
     %io:format("~p Ignoring data: ~p\n", [self(), Data]),
     {next_state, 'WAIT_FOR_DATA', State, ?TIMEOUT}.
 
-'WAIT_LOGIN_MESSAGE'({data, Bin}, #state{socket=S, host_name=H_name} = State) ->
+ handle_req_by_type(post, Data, #state{socket=S} = State) ->
+ 	inet:setopts(S, [{active, false}, binary]),
+	?MODULE:'POST_ANSWER'({data, Data}, State);
+
+ handle_req_by_type(get, Data, #state{socket=S} = State) ->
+ 	case re:run(Data, "Sec-WebSocket-Key:[\s]{0,1}(.*)\r\n",[global,{capture,[1],list}]) of
+        {match, Res} -> 
+        	%io:format("~p is Handshake\n", [self()]),
+			{ok, B_all_answ} = get_awsw_key(Res);
+        nomatch ->  
+			B_all_answ = <<"invalid_handshake">>
+    end,
+	tcp_lib:send_message({ok, B_all_answ}, S),
+	{next_state, 'WAIT_LOGIN_MESSAGE', State#state{count_message=0}}.
+ 
+ %===============================================
+'WAIT_LOGIN_MESSAGE'({data, Bin}, State) ->
  	%io:format("~p WAIT_LOGIN_MESSAGE\n", [self()]),
 	{ok, Data} =  handle_data(Bin),
 	%io:format("~p User login: ~p\n", [self(), Data]),
 	%io:format("~p User addr: ~p\n", [self(), Address]),
 	%io:format("~p User host: ~p\n", [self(), H_name]),
  	
-	case check_login_format(Data) of
-		true ->
-		 	StrLogin = list_to_binary([H_name, "_", Data]),
-			Login = tcp_lib:get_login([H_name, "_", Data]),
+	handle_login_format(check_login_format(Data), Data, State).
 
-			case Login of
-				false ->
-					tcp_listener:delete_user_pid(self(), Login),
-		    		%io:format("~p Client ~p disconnected.\n", [self(), OldLogin]),
-					{stop, normal, State};
-				_ ->
-					%io:format("~p User full login: ~p\n", [self(), Login]),
-					%io:format("~p User exists: ~p\n", [self(), tcp_listener:is_user_exists(binary_to_atom(Data, utf8))]),
-					%io:format("~p Domain ~p exists: ~p\n", [self(), H_name, tcp_listener:is_user_domain_exists(binary_to_atom(Data, utf8), H_name)]),
-					
-					case tcp_listener:is_user_domain_exists(binary_to_atom(Data, utf8), list_to_binary(lists:flatten(H_name))) of
-						{ok,true} ->
-							case tcp_listener:is_user_exists(binary_to_atom(Data, utf8)) of
-								{ok,true} ->
-									case statistic_server:init_message(H_name) of
-										{ok, false} ->
-											{ok, Frame} = mask(<<"invalid_key">>),
-									  	 	ok = gen_tcp:send(S, Frame),
-											{next_state, 'WAIT_LOGIN_MESSAGE', State};
+handle_login_format(true, Data, #state{host_name=H_name} = State) ->
+	StrLogin = list_to_binary([H_name, "_", Data]),
+	Login = tcp_lib:get_login([H_name, "_", Data]),
 
-										{ok, Cnt} ->
-											NewLogin = tcp_lib:get_uniq_user_login(StrLogin),
-											register(NewLogin, self()),
-
-											tcp_listener:add_user_pid(self(), Login),
-
-											{ok, Frame} = mask(<<"ok">>),
-											ok = gen_tcp:send(S, Frame),
-											
-											{next_state, 'WAIT_USER_MESSAGE', State#state{count_message=Cnt, login=Login, curent_login=NewLogin}}
-									end;
-								{ok,false} ->
-									{ok, Frame} = mask(<<"user_not_register">>),
-							  	 	ok = gen_tcp:send(S, Frame),
-									{next_state, 'WAIT_LOGIN_MESSAGE', State}
-							end;
-						{ok,false} ->
-							{ok, Frame} = mask(<<"domain_not_register">>),
-					  	 	ok = gen_tcp:send(S, Frame),
-					  	 	gen_tcp:close(S),
-
-							{stop, normal, State}
-					end
-			end;
+	case Login of
 		false ->
-			case erlang:port_info(S) of
-				undefined ->
-					true;
-				_ -> 
-				{ok, Frame} = mask(<<"invalid_login_format">>),
-	  	 		ok = gen_tcp:send(S, Frame)
-			end,
-			{next_state, 'WAIT_LOGIN_MESSAGE', State}
-	end.
+			tcp_listener:delete_user_pid(self(), Login),
+    		%io:format("~p Client ~p disconnected.\n", [self(), OldLogin]),
+			{stop, normal, State};
+		_ ->
+			%io:format("~p User full login: ~p\n", [self(), Login]),
+			%io:format("~p User exists: ~p\n", [self(), tcp_listener:is_user_exists(binary_to_atom(Data, utf8))]),
+			%io:format("~p Domain ~p exists: ~p\n", [self(), H_name, tcp_listener:is_user_domain_exists(binary_to_atom(Data, utf8), H_name)]),
+			
+			handle_login_main_data(tcp_listener:is_user_domain_exists(binary_to_atom(Data, utf8), list_to_binary(lists:flatten(H_name))),
+							tcp_listener:is_user_exists(binary_to_atom(Data, utf8)), 
+							statistic_server:init_message(H_name), StrLogin, Login, State)
+	end;
 
-%check_login(Login) -> when check_login_format(Data) ->
+handle_login_format(false, _Data, #state{socket=S} = State) ->
+	case erlang:port_info(S) of
+		undefined ->
+			true;
+		_ -> 
+			tcp_lib:send_message(mask(<<"invalid_login_format">>), S)
+	end,
+	{next_state, 'WAIT_LOGIN_MESSAGE', State}.
 
+handle_login_main_data({ok,false}, _, _, _StrLogin, _Login, #state{socket=S} = State) ->
+		tcp_lib:send_message(mask(<<"domain_not_register">>), S),
+  	 	gen_tcp:close(S),
+		{stop, normal, State};
 
+handle_login_main_data({ok,true}, {ok,false}, _, _StrLogin, _Login, #state{socket=S} = State) ->
+  	 	tcp_lib:send_message(mask(<<"user_not_register">>), S),
+		{next_state, 'WAIT_LOGIN_MESSAGE', State};
 
+handle_login_main_data({ok,true}, {ok,true}, {ok,false}, _StrLogin, _Login, #state{socket=S} = State) ->
+  	 	tcp_lib:send_message(mask(<<"invalid_key">>), S),
+		{next_state, 'WAIT_LOGIN_MESSAGE', State};
 
+handle_login_main_data({ok,true}, {ok,true}, {ok, Cnt}, StrLogin, Login, #state{socket=S} = State) ->
+	NewLogin = tcp_lib:get_uniq_user_login(StrLogin),
+	global:register_name(NewLogin, self()),
+
+	tcp_listener:add_user_pid(self(), Login),
+	tcp_lib:send_message(mask(<<"ok">>), S),
+	
+	{next_state, 'WAIT_USER_MESSAGE', State#state{count_message=Cnt, login=Login, curent_login=NewLogin}}.
+
+ %===============================================
 'WAIT_USER_MESSAGE'({data, Bin}, #state{socket=S, host_name=H_name, curent_login=CurentLogin, count_message=OldCnt} = State) ->
 	{ok, Data} =  handle_data(Bin),
 	%io:format("~p data: ~p\n", [self(), Data]),
@@ -219,47 +209,18 @@ init([]) ->
 				Login =/= CurentLogin->
 					case Login of
 						false ->
-							{ok, Frame} = mask(<<"invalid_login_data">>),
 							Cnt = OldCnt,
-							ok = gen_tcp:send(S, Frame);
+							tcp_lib:send_message(mask(<<"invalid_login_data">>), S);
 						_ ->
-							case tcp_listener:get_user_pids(To) of
-							 	[] ->
-							 		{ok, Frame} = mask(<<"user_not_exists">>),
-							 		Cnt = OldCnt,
-							 		ok = gen_tcp:send(S, Frame);
-							 	Pids ->
-							 		lists:foreach(fun(Pid)->
-							 				%можно было бы поставить гварда, но нужно вычищать мёртвые процессы
-							 				%поэтому сделаем case
-							 				case is_pid(Pid) of
-							 					true ->
-							 						%io:format("~p send message ~p to: ~p\n", [self(), To_data, Pid]),
-							 						Pid ! {new_message, To_data},
-													{ok, Frame} = mask(<<"ok">>),
-													ok = gen_tcp:send(S, Frame);
-												false ->
-													%io:format("~p remove dead proc: ~p\n", [self(), Pid]),
-													tcp_listener:delete_user_pid(Pid, Login)
-							 				end
-							 		end, Pids),
-							 		{ok, Cnt} = statistic_server:add_message(H_name)
-							 end
+							Cnt = handle_user_message(tcp_listener:get_user_pids(To), OldCnt, To_data, Login, State)
 					end;
 				true ->
-					{ok, Frame} = mask(<<"send_message_yourself">>),
 					Cnt = OldCnt,
-					ok = gen_tcp:send(S, Frame)
+					tcp_lib:send_message(mask(<<"send_message_yourself">>), S)
 			end;
-		_ when is_port(S) -> 
+		_  -> 
 			Cnt = OldCnt,
-			case erlang:port_info(S) of
-				undefined ->
-					true;
-				_ -> 
-				{ok, Frame} = mask(<<"invalid_format_data">>),
-				ok = gen_tcp:send(S, Frame)
-			end
+			tcp_lib:send_message(mask(<<"invalid_format_data">>), S)
 	end,
 		
 	{next_state, 'WAIT_USER_MESSAGE', State#state{count_message=Cnt}};
@@ -271,10 +232,32 @@ init([]) ->
 	To_data = #to_message{from=From, time=Time, text=Text},
 	
 	{ok, Frame} = mask(list_to_binary(?record_to_json(to_message, To_data))),
-	ok = gen_tcp:send(S, Frame),
+	tcp_lib:send_message({ok, Frame}, S),
 	
 	{next_state, 'WAIT_USER_MESSAGE', State}.
 
+handle_user_message([], Cnt, _To_data, _Login, #state{socket=S} = _State) ->
+	tcp_lib:send_message(mask(<<"user_not_exists">>), S),
+	Cnt;
+
+handle_user_message(Pids, Cnt, To_data, Login, #state{host_name=H_name, socket=S} = _State) ->
+	lists:foreach(fun(Pid)->
+		%можно было бы поставить гварда, но нужно вычищать мёртвые процессы
+		%поэтому сделаем case
+		case is_pid(Pid) of
+			true ->
+				%io:format("~p send message ~p to: ~p\n", [self(), To_data, Pid]),
+				Pid ! {new_message, To_data},
+				tcp_lib:send_message(mask(<<"ok">>), S);
+		false ->
+			%io:format("~p remove dead proc: ~p\n", [self(), Pid]),
+			tcp_listener:delete_user_pid(Pid, Login)
+		end
+	end, Pids),
+	{ok, Cnt} = statistic_server:add_message(H_name),
+	Cnt.
+
+ %===============================================
 'POST_ANSWER'({data, Data}, #state{socket=S} = State) ->
 	%io:format("~p POST_ANSWER\n", [self()]),
 	
@@ -317,19 +300,15 @@ init([]) ->
 	end,
 
 	Answer = [
-%		"Content-type: text/html\r\n",
-  %  	"Cache-Control: no-store, no-cache, must-revalidate, post-check=0, pre-check=0\r\n",
-  %  	"Pragma: no-cache\r\n",
-  %  	"Connection: Keep-Alive\r\n",
-  %  	"Content-Length: ", byte_size(Res), 
   		"\r\n",
     	Res
     ],
 
 	%io:format("~p send res ~p sock_r \n", [self(), Res]),
-	gen_tcp:send(S, list_to_binary(Answer)),
+	tcp_lib:send_message({ok, list_to_binary(Answer)}, S),
 	gen_tcp:close(S),
 
+	%io:format("~p stoping proc \n", [self()]),
 	{stop, normal, State}.
  
 action_on_user({register_user, Key, Id}) ->

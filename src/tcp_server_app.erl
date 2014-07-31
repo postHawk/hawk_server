@@ -16,28 +16,33 @@
 %% A startup function for spawning new client connection handling FSM.
 %% To be called by the TCP listener process.
 start_client(S_name) ->
-    supervisor:start_child({global, S_name}, []).
+    %io:format("starting child for ~p ...", [S_name]),
+    {ok, Pid} = supervisor:start_child({global, S_name}, []),
+    %io:format("child ~p started\n", [Pid]),
+    {ok, Pid} .
 
 start_domain_supervisor(Domain) ->
-  %io:format("exist ~p\n", [global:whereis_name(Domain)]),
+  %io:format("exist ~p  ~p\n", [Domain, global:whereis_name(Domain)]),
   case global:whereis_name(Domain) of
     undefined ->
+      %io:format("starting sup ~p ...", [Domain]),
       {ok, Pid} = supervisor:start_child({global, tcp_client_sup}, []),
+      %io:format("started ~p\n", [global:pid_2_name(Pid)]),
       global:unregister_name(domain_sup),
       global:register_name(Domain, Pid);
     _ ->
       true
   end,
-	
+	 
 start_client(Domain).
  
 %%----------------------------------------------------------------------
 %% Application behaviour callbacks
 %%----------------------------------------------------------------------
-start(_Type, [Args|_]) ->
+start(_Type, _Args) ->
 %io:format("2\n"),
     ListenPort = get_app_env(listen_port, ?DEF_PORT),
-    supervisor:start_link({global, ?MODULE}, ?MODULE, [ListenPort, Args]).
+    supervisor:start_link({global, ?MODULE}, ?MODULE, [ListenPort, tcp_message_fsm]).
  
 stop(_S) ->
     ok.
@@ -108,6 +113,3 @@ get_app_env(Opt, Default) ->
         error       -> Default
         end
     end.
-	
-
-

@@ -323,7 +323,7 @@ handle_info({inet_async, ListSock, Ref, {ok, CliSocket}},
 		{ok, GET_data} = gen_tcp:recv(CliSocket, 0),
 
         case tcp_lib:is_post_req(GET_data) of
-            false -> 
+            get -> 
         		case re:run(GET_data, "Origin\:\shttp\:\/\/(.*)\r\n",[global,{capture,[1],list}]) of
         	        {match, S_name} -> 
         				%io:format("~p matched: ~p\n", [self(), S_name]),
@@ -333,8 +333,8 @@ handle_info({inet_async, ListSock, Ref, {ok, CliSocket}},
         				{ok,{hostent,Hostname,_,_,_,_}} = inet:gethostbyaddr(Address),
         				S_name = string:to_lower(Hostname)
         	    end;
-            true ->
-                S_name = post_supervisor
+            post ->
+                S_name ="post_supervisor"
         end,
         {ok, Pid} = tcp_server_app:start_domain_supervisor(tcp_lib:convert_to_atom(S_name)),
 		

@@ -11,7 +11,8 @@
         code_change/3, 
         rergister_user/2, unregister_user/2, is_user_exists/1, 
         add_user_pid/2, delete_user_pid/2, get_user_pids/1,
-        add_domain/3, del_domain/3, is_user_domain_exists/2
+        add_domain/3, del_domain/3, is_user_domain_exists/2,
+        add_in_group/3, remove_from_group/3, get_by_group/2
     ]).
  
 -record(state, {
@@ -20,7 +21,8 @@
                 module,          % FSM handling module
                 reg_users_data_tableId,
                 users_pid_tableId,
-                main_user_data
+                main_user_data,
+                groups_to_user
                }).
 
 -record(users, {
@@ -31,6 +33,8 @@
     key,
     domain
 }).
+
+-record(users_in_group, {group, users}).
 
 -define(API_SALT, "dfm@,vadn54/sdfa3;jx").
 
@@ -70,9 +74,14 @@ init([Port, Module]) ->
             %%Create first accepting process
             {ok, Ref} = prim_inet:async_accept(Listen_socket, -1),
 			
-            HTableId = ets:new(reg_users_data, [ordered_set]),
-            UsPidTableId = ets:new(users_pids, [ordered_set]),
-            MUTableId = ets:new(main_user_data, [ordered_set]),
+            %информация о зарегистрированных пользователях
+            HTableId = ets:new(reg_users_data, [ordered_set, private]),
+            %информация о процессах пользователя
+            UsPidTableId = ets:new(users_pids, [ordered_set, private]),
+            %информация о регистрационыых заспиях (на сайте сервиса из монги)
+            MUTableId = ets:new(main_user_data, [ordered_set, private]),
+            %принадлежность пользователя к  группе
+            UGTableId = ets:new(groups_to_user, [ordered_set, private]),
 			
             mongoapi:recinfo(#users{}, record_info(fields, users)),
             {ok, #state{listener = Listen_socket,
@@ -80,7 +89,8 @@ init([Port, Module]) ->
                         module   = Module,
                         reg_users_data_tableId  = HTableId,
                         users_pid_tableId = UsPidTableId,
-                        main_user_data = MUTableId
+                        main_user_data = MUTableId,
+                        groups_to_user = UGTableId
                     }};
         {error, Reason} ->
             {stop, Reason}
@@ -247,27 +257,120 @@ handle_call({unregister_pid, Pid, Login}, _From, #state{users_pid_tableId=TableI
     end,
     {reply, ok, State};
 
-handle_call({get_pids, Login}, _From, #state{users_pid_tableId=TableId, reg_users_data_tableId=TableHost, main_user_data=MUTid} = State) ->
-    %находим домены пользователя
+handle_call({get_pids, Login}, _From, State) ->
+    %io:format("~p login: ~p\n", [self(), Login]),
+    All = get_users_pids(Login, State),
+    %io:format("~p finded user pids: ~p\n", [self(), All]),
+    {reply, All, State};
+
+handle_call({add_in_groups, Key, Login, Groups}, _From, #state{reg_users_data_tableId=TableRU, groups_to_user=UGTableId} = State) ->
+    {ok, User} = get_user_by_key(Key),
+    %io:format("~p user: ~p\n", [self(), User]),
+    %io:format("~p in data: ~p\n", [self(), [Key, Login, Groups]]),
+    case User of
+        [] ->
+            Reply = <<"invalid_api_key">>;
+        _ ->
+            Key_t = binary_to_atom(Login, utf8) ,
+            case ets:lookup(TableRU, Key_t) of
+                [] ->
+                    Reply = <<"user_not_register">>;
+                _ ->
+                    %io:format("~p groups: ~p\n", [self(), Groups]),
+                    lists:foreach(fun(Gr)->
+
+                        case ets:lookup(UGTableId, Gr) of
+                            [] ->
+                                %io:format("~p add new group: ~p\n", [self(), {Gr, [Login]}]),
+                                ets:insert(UGTableId, {Gr, [Login]});
+                            [{_, Users}] ->
+                                case lists:member(Login, Users) of
+                                    false ->
+                                        NewUsers = lists:append([Users, [Login]]),
+                                        ets:insert(UGTableId, {Gr, NewUsers});
+                                        %io:format("~p NewUsers: ~p\n", [self(), {Gr, NewUsers}]);
+                                    true ->
+                                        true
+                                end
+                        end
+                    end, Groups),
+                    Reply = <<"ok">>
+            end
+    end,
+    
+    {reply, Reply, State};
+
+handle_call({remove_from_group, Key, Login, Groups}, _From, #state{reg_users_data_tableId=TableRU, groups_to_user=UGTableId} = State) ->
+    {ok, User} = get_user_by_key(Key),
+    %io:format("~p user: ~p\n", [self(), User]),
+    %io:format("~p in data: ~p\n", [self(), [Key, Login, Groups]]),
+    case User of
+        [] ->
+            Reply = <<"invalid_api_key">>;
+        _ ->
+            Key_t = binary_to_atom(Login, utf8) ,
+            case ets:lookup(TableRU, Key_t) of
+                [] ->
+                    Reply = <<"user_not_register">>;
+                _ ->
+                    %io:format("~p groups: ~p\n", [self(), Groups]),
+                    lists:foreach(fun(Gr)->
+                        %убеждаемся, что группа существует
+                        case ets:lookup(UGTableId, Gr) of
+                            [] ->
+                               true;
+                            [{_, Users}] ->
+                                NewUsers = lists:delete(Login, Users),
+                                %io:format("~p remove user from group: ~p Remaining ~p\n", [self(), Gr, NewUsers]),
+                                ets:insert(UGTableId, {Gr, NewUsers})
+                        end
+                    end, Groups),
+                    Reply = <<"ok">>
+            end
+    end,
+    
+    {reply, Reply, State};
+
+handle_call({get_by_group, Key, Groups}, _From, #state{groups_to_user=UGTableId} = State) ->
+    {ok, User} = get_user_by_key(Key),
+    %io:format("~p user: ~p\n", [self(), User]),
+    %io:format("~p in data: ~p\n", [self(), [Key, Login, Groups]]),
+    case User of
+        [] ->
+            Reply = <<"invalid_api_key">>;
+        _ ->
+            Reply = get_users_by_groups(Groups, UGTableId)
+    end,
+    
+    {reply, Reply, State}. 
+
+%==============================================================
+get_users_pids(Login, State)  ->
+    get_users_pids([Login], [], State).
+
+get_users_pids([], All, _State)  ->
+    All;
+
+get_users_pids(Logins, All, #state{users_pid_tableId=TableId, reg_users_data_tableId=TableHost, main_user_data=MUTid} = State) when is_list(Logins) ->
+    %io:format("~p logins: ~p\n", [self(), Logins]),
+    [Login|T] = Logins,
     Key = binary_to_atom(Login, utf8),
-    %io:format("~p finded user: ~p login ~p\n", [self(), ets:lookup(TableHost, Key), Key]),
     case ets:lookup(TableHost, Key) of
         [] -> 
-            All = [];
+           NewAll = [];
         [{_, MLogin}] ->
             %io:format("~p main data: ~p\n", [self(), ets:lookup(MUTid, MLogin)]),
             case ets:lookup(MUTid, MLogin) of
                 [] -> 
-                    All = [];
+                    NewAll = [];
                 [{_, Hosts}] ->
                     %io:format("~p finded domain: ~p login ~p\n", [self(), Hosts, MLogin]),
-                    All = get_pids_by_hosts(Hosts, Login, TableId)
+                    NewAll = lists:append(All, get_pids_by_hosts(Hosts, Login, TableId))
             end
     end,
-    %io:format("~p finded user pids: ~p\n", [self(), All]),
-    {reply, All, State}.
-   
+    get_users_pids(T, NewAll, State).
 
+%==============================================================
 get_pids_by_hosts(Hosts, Login, TableId) ->
     get_pids_by_hosts(Hosts, [], Login, TableId).
 
@@ -284,6 +387,23 @@ get_pids_by_hosts(Hosts, All, Login, TableId) ->
             NewAll = lists:append([All, List])
     end,
     get_pids_by_hosts(NewHosts, NewAll, Login, TableId).
+
+%==============================================================
+get_users_by_groups(Groups, UGTableId) ->
+    get_users_by_groups(Groups, UGTableId, []).
+
+get_users_by_groups([], _UGTableId, All) ->
+    All;
+
+get_users_by_groups(Groups, UGTableId, All) ->
+    [Gr|T] = Groups,
+    case ets:lookup(UGTableId, Gr) of
+        [] ->
+            NewAll = lists:append([All, []]);
+        [{_, Users}] ->
+            NewAll = lists:append([All, [#users_in_group{group=Gr, users=Users}]])
+    end,
+    get_users_by_groups(T, UGTableId, NewAll).
 
  
 %%-------------------------------------------------------------------------
@@ -438,4 +558,13 @@ add_domain(Key, Domain, Login) ->
      gen_server:call({global, ?MODULE}, {add_domain, Key, Domain, Login}).     
 
 del_domain(Key, Domain, Login) ->
-     gen_server:call({global, ?MODULE}, {del_domain, Key, Domain, Login}).    
+     gen_server:call({global, ?MODULE}, {del_domain, Key, Domain, Login}).
+
+add_in_group(Key, Id, Groups) ->
+     gen_server:call({global, ?MODULE}, {add_in_groups, Key, Id, Groups}).   
+
+remove_from_group(Key, Id, Groups) ->
+     gen_server:call({global, ?MODULE}, {remove_from_group, Key, Id, Groups}).
+
+get_by_group(Key, Groups) ->
+     gen_server:call({global, ?MODULE}, {get_by_group, Key, Groups}).

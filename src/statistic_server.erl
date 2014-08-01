@@ -31,7 +31,7 @@
 
 %% init/1
 init([]) ->
-	TableId = ets:new(hosts_data, [ordered_set]),
+	TableId = ets:new(hosts_data, [ordered_set, private]),
 	mongodb:singleServer(hawk_statistics),
 	mongodb:connect(hawk_statistics),
 	
@@ -93,10 +93,10 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %% ====================================================================
 add_message(Host) ->
-	gen_server:call(?MODULE, {new_message_from_host, Host}).
+	gen_server:call({global, ?MODULE}, {new_message_from_host, Host}).
 
 get_count_message(Host) ->
-	gen_server:call(?MODULE, {get_cnt_for_host, Host}).
+	gen_server:call({global, ?MODULE}, {get_cnt_for_host, Host}).
 
 init_message(Host) ->
 	%io:format("~p Init message", [self()]),

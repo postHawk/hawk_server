@@ -24,12 +24,19 @@
 
 -include("jsonerl.hrl").
 
--record(message, {from, to, time, text, group}).
+-record(message, {from, to, time, text}).
 -record(to_message, {from, time, text}).
+
 -record(register_user, {key, id}).
 -record(unregister_user, {key, id}).
+
 -record(add_domain, {key, domain, login}).
 -record(del_domain, {key, domain, login}).
+
+-record(add_in_groups, {key, id, groups}).
+-record(remove_from_groups, {key, id, groups}).
+-record(get_by_group, {key, groups}).
+-record(users_in_group, {group, users}).
 
 -record(state,{
 	socket,    % client socket
@@ -190,38 +197,15 @@ handle_login_main_data({ok,true}, {ok,true}, {ok, Cnt}, StrLogin, Login, #state{
 	{next_state, 'WAIT_USER_MESSAGE', State#state{count_message=Cnt, login=Login, curent_login=NewLogin}}.
 
  %===============================================
-'WAIT_USER_MESSAGE'({data, Bin}, #state{socket=S, host_name=H_name, curent_login=CurentLogin, count_message=OldCnt} = State) ->
+'WAIT_USER_MESSAGE'({data, Bin}, State) ->
 	{ok, Data} =  handle_data(Bin),
 	%io:format("~p data: ~p\n", [self(), Data]),
 
 	J_data = get_json_data(message, Data),
 
-	%io:format("~p json data: ~p\n", [self(), J_data]),
+	io:format("~p json data: ~p\n", [self(), J_data]),
 	
-	case J_data of
-		{message, From, To, Time, Text} -> 
-			%%io:format("~p User message: ~p\n", [self(), J_data]);
-			To_data = #message{from=From, to=To, time=Time, text=Text},
-			Login = tcp_lib:get_login([H_name, "_", To]),
-
-			%запрещаем отправку сообщение самому себе
-			if 
-				Login =/= CurentLogin->
-					case Login of
-						false ->
-							Cnt = OldCnt,
-							tcp_lib:send_message(mask(<<"invalid_login_data">>), S);
-						_ ->
-							Cnt = handle_user_message(tcp_listener:get_user_pids(To), OldCnt, To_data, Login, State)
-					end;
-				true ->
-					Cnt = OldCnt,
-					tcp_lib:send_message(mask(<<"send_message_yourself">>), S)
-			end;
-		_  -> 
-			Cnt = OldCnt,
-			tcp_lib:send_message(mask(<<"invalid_format_data">>), S)
-	end,
+	Cnt = handle_json_message(J_data, State),
 		
 	{next_state, 'WAIT_USER_MESSAGE', State#state{count_message=Cnt}};
 
@@ -236,26 +220,69 @@ handle_login_main_data({ok,true}, {ok,true}, {ok, Cnt}, StrLogin, Login, #state{
 	
 	{next_state, 'WAIT_USER_MESSAGE', State}.
 
+handle_json_message({message, From, {{<<"user">>,To}}, Time, Text}, #state{socket=S, host_name=H_name, curent_login=CurentLogin, count_message=OldCnt} = State) ->
+	%io:format("~p Message for user: ~p\n", [self(), To]),
+	To_data = #message{from=From, to=To, time=Time, text=Text},
+	Login = tcp_lib:get_login([H_name, "_", To]),
+
+	%запрещаем отправку сообщение самому себе
+	if 
+		Login =/= CurentLogin->
+			case Login of
+				false ->
+					Cnt = OldCnt,
+					tcp_lib:send_message(mask(<<"invalid_login_data">>), S);
+				_ ->
+					Cnt = handle_user_message(tcp_listener:get_user_pids(To), OldCnt, To_data, Login, State)
+			end;
+		true ->
+			Cnt = OldCnt,
+			tcp_lib:send_message(mask(<<"send_message_yourself">>), S)
+	end,
+	Cnt;
+
+handle_json_message({message, From, {{<<"group">>, To}}, Time, Text}, #state{count_message=Cnt}) when is_list(To) ->
+	io:format("~p Message for group: ~p\n", [self(), To]),
+
+	Cnt;
+
+handle_json_message({message, _From, _To, _Time, _Text}, #state{socket=S, count_message=Cnt}) ->
+	%io:format("~p error:\n", [self()]),
+	tcp_lib:send_message(mask(<<"invalid_format_data">>), S),
+	Cnt;
+
+handle_json_message(false, #state{socket=S, count_message=Cnt}) ->
+	%io:format("~p error in json:\n", [self()]),
+	tcp_lib:send_message(mask(<<"invalid_format_data">>), S),
+	Cnt.
+
+ %===============================================
 handle_user_message([], Cnt, _To_data, _Login, #state{socket=S} = _State) ->
 	tcp_lib:send_message(mask(<<"user_not_exists">>), S),
 	Cnt;
 
-handle_user_message(Pids, Cnt, To_data, Login, #state{host_name=H_name, socket=S} = _State) ->
+handle_user_message(Pids, _Cnt, To_data, Login, #state{host_name=H_name, socket=S} = _State) ->
 	lists:foreach(fun(Pid)->
 		%можно было бы поставить гварда, но нужно вычищать мёртвые процессы
 		%поэтому сделаем case
-		case is_pid(Pid) of
+		if is_pid(Pid) ->
+				case is_process_alive(Pid) of
+					true ->
+						%io:format("~p send message ~p to: ~p", [self(), To_data, Pid]),
+						Pid ! {new_message, To_data},
+						%io:format("~p sended\n", [self()]),
+						tcp_lib:send_message(mask(<<"ok">>), S);
+					false ->
+						tcp_listener:delete_user_pid(Pid, Login)
+				end;
 			true ->
-				%io:format("~p send message ~p to: ~p\n", [self(), To_data, Pid]),
-				Pid ! {new_message, To_data},
-				tcp_lib:send_message(mask(<<"ok">>), S);
-		false ->
-			%io:format("~p remove dead proc: ~p\n", [self(), Pid]),
-			tcp_listener:delete_user_pid(Pid, Login)
+				%io:format("~p remove dead proc: ~p\n", [self(), Pid]),
+				tcp_listener:delete_user_pid(Pid, Login)
 		end
 	end, Pids),
-	{ok, Cnt} = statistic_server:add_message(H_name),
-	Cnt.
+	%io:format("~p new cnt: ~p\n", [self(), statistic_server:add_message(H_name)]),
+	{ok, NewCnt} = statistic_server:add_message(H_name),
+	NewCnt.
 
  %===============================================
 'POST_ANSWER'({data, Data}, #state{socket=S} = State) ->
@@ -282,8 +309,8 @@ handle_user_message(Pids, Cnt, To_data, Login, #state{host_name=H_name, socket=S
 			JSON = 
 				try get_json_data(tcp_lib:convert_to_atom(Qtype), list_to_binary(StrJSON)) of
 					J -> J
-				catch  _A:_B -> 
-					%io:format("~p error ~p:~p  \n", [self(), A, B]),
+				catch  A:B -> 
+					io:format("~p error ~p:~p  \n", [self(), A, B]),
 					false
 				end,
 
@@ -331,7 +358,27 @@ action_on_user({add_domain, Key, Domain, Login}) ->
 	atom_to_list(tcp_listener:add_domain(Key, Domain, Login));
 
 action_on_user({del_domain, Key, Domain, Login}) ->
-	atom_to_list(tcp_listener:del_domain(Key, Domain, Login)).
+	atom_to_list(tcp_listener:del_domain(Key, Domain, Login));
+
+action_on_user({add_in_groups, Key, Id, Groups}) when is_list(Groups) ->
+	tcp_listener:add_in_group(Key, Id, Groups);
+
+action_on_user({add_in_groups, _Key, _Id, _Groups}) ->
+	"invalid_group_format";
+
+action_on_user({remove_from_groups, Key, Id, Groups}) when is_list(Groups) ->
+	tcp_listener:remove_from_group(Key, Id, Groups);
+
+action_on_user({remove_from_groups, _Key, _Id, _Groups}) ->
+	"invalid_group_format";
+
+action_on_user({get_by_group, Key, Groups}) when is_list(Groups) ->
+	Res = tcp_listener:get_by_group(Key, Groups),
+	io:format("res ~p\n", [Res]),
+	?list_records_to_json(users_in_group, Res);
+
+action_on_user({get_by_group, _Key, _Groups}) ->
+	"invalid_group_format".	
 
 check_login_format(Data) ->
 	%io:format("~p check_login_format ~p result ~p \n", [self(), Data, re:run(Data, "^[a-zA-Z\d]{3,64}$")]),
@@ -505,6 +552,27 @@ get_json_data(add_domain, Data) ->
 
 get_json_data(del_domain, Data) ->
 	try ?json_to_record(del_domain, Data) of
+		R -> R
+	catch  _:_ -> 
+		false
+	end;
+
+get_json_data(add_in_groups, Data) ->
+	try ?json_to_record(add_in_groups, Data) of
+		R -> R
+	catch  _:_ -> 
+		false
+	end;
+
+get_json_data(remove_from_groups, Data) ->
+	try ?json_to_record(remove_from_groups, Data) of
+		R -> R
+	catch  _:_ -> 
+		false
+	end;
+
+get_json_data(get_by_group, Data) ->
+	try ?json_to_record(get_by_group, Data) of
 		R -> R
 	catch  _:_ -> 
 		false

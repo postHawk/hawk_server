@@ -18,6 +18,8 @@ echo "\n";
 print_r($api->remove_user_from_group('test', array('test_group')));
 echo "\n";
 print_r($api->seng_group_message('test', 'tstt msg', array('test_group', 'group1')));
+
+
 /*echo "\n";
 print_r(json_decode($api->get_user_by_group(array('group1'))));
 echo "\n";

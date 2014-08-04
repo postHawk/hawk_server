@@ -81,7 +81,7 @@ init([Port, Module]) ->
             %информация о регистрационыых заспиях (на сайте сервиса из монги)
             MUTableId = ets:new(main_user_data, [ordered_set, private]),
             %принадлежность пользователя к  группе
-            UGTableId = ets:new(groups_to_user, [ordered_set, private]),
+            UGTableId = ets:new(groups_to_user, [ordered_set, public]),
 			
             mongoapi:recinfo(#users{}, record_info(fields, users)),
             {ok, #state{listener = Listen_socket,

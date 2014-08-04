@@ -334,13 +334,13 @@ handle_user_message(Output, Pids, _Cnt, To_data, Login, #state{host_name=H_name,
 			%io:format("~p res json ~p\n", [self(), JSON]),
 
 			Res = 
-				try 
-					action_on_user(JSON, State) of
-					R -> R
-				catch  _C:_D -> 
+				%try 
+					action_on_user(JSON, State) %of
+			%		R -> R
+			%	catch  _C:_D -> 
 					%io:format("~p error ~p:~p  \n", [self(), C, D]),
-					<<"invalid_format_data">>
-				end
+			%		<<"invalid_format_data">>
+			%	end
 	end,
 
 	Answer = [
@@ -391,11 +391,11 @@ action_on_user({remove_from_groups, _Key, _Id, _Groups}, _State) ->
 
 action_on_user({send_group_message, Key, Text, Groups, Time, From}, State) when is_list(Groups) ->
 	Res = tcp_listener:get_by_group(Key, Groups),
-	Users = get_users_from_groups(Res),
+	Users = get_users_from_groups(Res, From),
 	UnUsers = lists:usort(Users),
 
 	lists:foreach(fun(U) ->
-			io:format("~p send to ~p \n", [self(), U]),
+			%io:format("~p send to ~p \n", [self(), U]),
 			To_data = #message{from=From, to=U, time=Time, text=Text},
 			handle_user_message(off_output, tcp_listener:get_user_pids(U), 0, To_data, U, State)
 	end, UnUsers),
@@ -407,7 +407,7 @@ action_on_user({send_group_message, _Key, _Text, _Groups, _Time, _From}, _State)
 
 action_on_user({get_by_group, Key, Groups}, _State) when is_list(Groups) ->
 	Res = tcp_listener:get_by_group(Key, Groups),
-	io:format("res ~p\n", [Res]),
+	%io:format("res ~p\n", [Res]),
 	?list_records_to_json(users_in_group, Res);
 
 action_on_user({get_by_group, _Key, _Groups}, _State) ->
@@ -422,17 +422,24 @@ check_login_format(Data) ->
         	false
       end.
 
-get_users_from_groups(Groups) ->
-	get_users_from_groups(Groups, []).
+get_users_from_groups(Groups, From) ->
+	get_users_from_groups(Groups, [], From).
 
- get_users_from_groups([], All) ->
+ get_users_from_groups([], All, _From) ->
 	All;
 
- get_users_from_groups(Groups, All) ->
+ get_users_from_groups(Groups, All, From) ->
 	[H|T] = Groups,
 	{users_in_group, _GrpName, Users} = H,
-	NewAll = lists:append(All, Users),
-	get_users_from_groups(T, NewAll).
+	%сообщения можно слать только в рамках своих групп
+	case lists:member(From, Users) of
+		true ->
+			NewAll = lists:append(All, Users);
+		false ->
+			%io:format("~p none group\n", [self()]),
+			NewAll = []
+	end,
+	get_users_from_groups(T, NewAll, From).
 
 
 %%-------------------------------------------------------------------------

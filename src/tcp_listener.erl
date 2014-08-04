@@ -277,17 +277,17 @@ handle_call({add_in_groups, Key, Login, Groups}, _From, #state{reg_users_data_ta
                     Reply = <<"user_not_register">>;
                 _ ->
                     %io:format("~p groups: ~p\n", [self(), Groups]),
+                    #users{login=ULogin} = User,
                     lists:foreach(fun(Gr)->
-
-                        case ets:lookup(UGTableId, Gr) of
+                        case ets:lookup(UGTableId, {Gr, ULogin}) of
                             [] ->
                                 %io:format("~p add new group: ~p\n", [self(), {Gr, [Login]}]),
-                                ets:insert(UGTableId, {Gr, [Login]});
+                                ets:insert(UGTableId, {{Gr, ULogin}, [Login]});
                             [{_, Users}] ->
                                 case lists:member(Login, Users) of
                                     false ->
                                         NewUsers = lists:append([Users, [Login]]),
-                                        ets:insert(UGTableId, {Gr, NewUsers});
+                                        ets:insert(UGTableId, {{Gr, ULogin}, NewUsers});
                                         %io:format("~p NewUsers: ~p\n", [self(), {Gr, NewUsers}]);
                                     true ->
                                         true
@@ -314,15 +314,16 @@ handle_call({remove_from_group, Key, Login, Groups}, _From, #state{reg_users_dat
                     Reply = <<"user_not_register">>;
                 _ ->
                     %io:format("~p groups: ~p\n", [self(), Groups]),
+                    #users{login=ULogin} = User,
                     lists:foreach(fun(Gr)->
                         %убеждаемся, что группа существует
-                        case ets:lookup(UGTableId, Gr) of
+                        case ets:lookup(UGTableId, {Gr, ULogin}) of
                             [] ->
                                true;
                             [{_, Users}] ->
                                 NewUsers = lists:delete(Login, Users),
                                 %io:format("~p remove user from group: ~p Remaining ~p\n", [self(), Gr, NewUsers]),
-                                ets:insert(UGTableId, {Gr, NewUsers})
+                                ets:insert(UGTableId, {{Gr, ULogin}, NewUsers})
                         end
                     end, Groups),
                     Reply = <<"ok">>
@@ -339,7 +340,8 @@ handle_call({get_by_group, Key, Groups}, _From, #state{groups_to_user=UGTableId}
         [] ->
             Reply = <<"invalid_api_key">>;
         _ ->
-            Reply = get_users_by_groups(Groups, UGTableId)
+            #users{login=ULogin} = User,
+            Reply = get_users_by_groups(Groups, UGTableId, ULogin)
     end,
     
     {reply, Reply, State}. 
@@ -389,21 +391,21 @@ get_pids_by_hosts(Hosts, All, Login, TableId) ->
     get_pids_by_hosts(NewHosts, NewAll, Login, TableId).
 
 %==============================================================
-get_users_by_groups(Groups, UGTableId) ->
-    get_users_by_groups(Groups, UGTableId, []).
+get_users_by_groups(Groups, UGTableId, ULogin) ->
+    get_users_by_groups(Groups, UGTableId, [], ULogin).
 
-get_users_by_groups([], _UGTableId, All) ->
+get_users_by_groups([], _UGTableId, All, _ULogin) ->
     All;
 
-get_users_by_groups(Groups, UGTableId, All) ->
+get_users_by_groups(Groups, UGTableId, All, ULogin) ->
     [Gr|T] = Groups,
-    case ets:lookup(UGTableId, Gr) of
+    case ets:lookup(UGTableId, {Gr, ULogin}) of
         [] ->
             NewAll = lists:append([All, []]);
         [{_, Users}] ->
             NewAll = lists:append([All, [#users_in_group{group=Gr, users=Users}]])
     end,
-    get_users_by_groups(T, UGTableId, NewAll).
+    get_users_by_groups(T, UGTableId, NewAll, ULogin).
 
  
 %%-------------------------------------------------------------------------
@@ -442,21 +444,23 @@ handle_info({inet_async, ListSock, Ref, {ok, CliSocket}},
 		%io:format("~p Conn info: ~p\n", [self(), inet:peername(CliSocket)]),
 		{ok, GET_data} = gen_tcp:recv(CliSocket, 0),
 
+        case re:run(GET_data, "Origin\:\shttp\:\/\/(.*)\r\n",[global,{capture,[1],list}]) of
+            {match, S_name} -> 
+                %io:format("~p matched: ~p\n", [self(), S_name]),
+                true;
+            nomatch ->  
+                {ok, {Address, Port}} = inet:peername(CliSocket),
+                {ok,{hostent,Hostname,_,_,_,_}} = inet:gethostbyaddr(Address),
+                S_name = string:to_lower(Hostname)
+        end,
+
         case tcp_lib:is_post_req(GET_data) of
             get -> 
-        		case re:run(GET_data, "Origin\:\shttp\:\/\/(.*)\r\n",[global,{capture,[1],list}]) of
-        	        {match, S_name} -> 
-        				%io:format("~p matched: ~p\n", [self(), S_name]),
-        				true;
-        	        nomatch ->  
-        				{ok, {Address, Port}} = inet:peername(CliSocket),
-        				{ok,{hostent,Hostname,_,_,_,_}} = inet:gethostbyaddr(Address),
-        				S_name = string:to_lower(Hostname)
-        	    end;
+        		Sup_name = S_name;
             post ->
-                S_name ="post_supervisor"
+                Sup_name ="post_supervisor"
         end,
-        {ok, Pid} = tcp_server_app:start_domain_supervisor(tcp_lib:convert_to_atom(S_name)),
+        {ok, Pid} = tcp_server_app:start_domain_supervisor(tcp_lib:convert_to_atom(Sup_name)),
 		
         gen_tcp:controlling_process(CliSocket, Pid),
         %% Instruct the new FSM that it owns the socket.
@@ -549,22 +553,22 @@ add_user_pid(Pid, Login) when is_pid(Pid) ->
     gen_server:call({global, ?MODULE}, {register_pid, Pid, Login}).
 
 delete_user_pid(Pid, Login) when is_pid(Pid) ->
-     gen_server:call({global, ?MODULE}, {unregister_pid, Pid, Login}).
+    gen_server:call({global, ?MODULE}, {unregister_pid, Pid, Login}).
 
 get_user_pids(Login) ->
-     gen_server:call({global, ?MODULE}, {get_pids, Login}).
+    gen_server:call({global, ?MODULE}, {get_pids, Login}).
 
 add_domain(Key, Domain, Login) ->
-     gen_server:call({global, ?MODULE}, {add_domain, Key, Domain, Login}).     
+    gen_server:call({global, ?MODULE}, {add_domain, Key, Domain, Login}).     
 
 del_domain(Key, Domain, Login) ->
-     gen_server:call({global, ?MODULE}, {del_domain, Key, Domain, Login}).
+    gen_server:call({global, ?MODULE}, {del_domain, Key, Domain, Login}).
 
 add_in_group(Key, Id, Groups) ->
-     gen_server:call({global, ?MODULE}, {add_in_groups, Key, Id, Groups}).   
+    gen_server:call({global, ?MODULE}, {add_in_groups, Key, Id, Groups}).   
 
 remove_from_group(Key, Id, Groups) ->
-     gen_server:call({global, ?MODULE}, {remove_from_group, Key, Id, Groups}).
+    gen_server:call({global, ?MODULE}, {remove_from_group, Key, Id, Groups}).
 
 get_by_group(Key, Groups) ->
-     gen_server:call({global, ?MODULE}, {get_by_group, Key, Groups}).
+    gen_server:call({global, ?MODULE}, {get_by_group, Key, Groups}).

@@ -54,7 +54,29 @@ handle_call({new_message_from_host, Host}, _From, #state{count_all_message=Cnt_m
 	ets:insert(TableId, {Host, New_cnt}),
 	
 	{{Year,Month,Day},{Hour,_,_}} = erlang:localtime(),
-	Time = list_to_binary([integer_to_list(Year),integer_to_list(Month),integer_to_list(Day),integer_to_list(Hour)]),
+	
+	if 
+		Month < 10 ->
+			EMonth = ["0", integer_to_list(Month)];
+		true ->
+			EMonth = integer_to_list(Month)
+	end,
+
+	if 
+		Day < 10 ->
+			EDay = ["0", integer_to_list(Day)];
+		true ->
+			EDay = integer_to_list(Day)
+	end,
+
+	if 
+		Hour < 10 ->
+			EHour = ["0", integer_to_list(Hour)];
+		true ->
+			EHour = integer_to_list(Hour)
+	end,
+
+	Time = list_to_binary([integer_to_list(Year), EMonth, EDay, EHour]),
 
 	Mong = mongoapi:new(hawk_statistics,<<"hawk">>),
 	Mong:update([{#message_log.domain, Host}, {#message_log.time, Time}], #message_log{cnt_mess = New_cnt, domain = Host, time = Time}, [upsert]),

@@ -75,13 +75,13 @@ init([Port, Module]) ->
             {ok, Ref} = prim_inet:async_accept(Listen_socket, -1),
 			
             %информация о зарегистрированных пользователях
-            HTableId = ets:new(reg_users_data, [ordered_set, private]),
+            HTableId = ets:new(reg_users_data, [ordered_set, protected, named_table]),
             %информация о процессах пользователя
             UsPidTableId = ets:new(users_pids, [ordered_set, private]),
             %информация о регистрационыых заспиях (на сайте сервиса из монги)
-            MUTableId = ets:new(main_user_data, [ordered_set, private]),
+            MUTableId = ets:new(main_user_data, [ordered_set, protected, named_table]),
             %принадлежность пользователя к  группе
-            UGTableId = ets:new(groups_to_user, [ordered_set, public]),
+            UGTableId = ets:new(groups_to_user, [ordered_set, private]),
 			
             mongoapi:recinfo(#users{}, record_info(fields, users)),
             {ok, #state{listener = Listen_socket,
@@ -115,12 +115,12 @@ handle_call({rergister_user, Key, Id}, _From, #state{reg_users_data_tableId=Tabl
         [] ->
             Reply = false;
         _ ->
-			#users{domain=Host, login=Login} = User,
+			#users{domain=Host, login=Login, key=ApiKey} = User,
             %регистрируем данные учётки пользователя сайта
             case ets:lookup(MUTid, Login) of
                 [] ->
                     {array, List} = Host,
-                    ets:insert(MUTid, {Login, List});
+                    ets:insert(MUTid, {Login, List, ApiKey});
                     %io:format("~p add main data: ~p\n", [self(), {Login, List}]);
                 _ ->
                     true
@@ -182,7 +182,7 @@ handle_call({check_user_domain, Id, Domain}, _From, #state{reg_users_data_tableI
             case ets:lookup(MUTid, Login) of
                 [] -> 
                     {reply, {ok, false}, State};
-                [{_, Hosts}] ->
+                [{_, Hosts, _}] ->
                     %io:format("~p host ~p \n", [self(), lists:member(Domain, Hosts) ]),
                     case lists:member(Domain, Hosts) of
                         true ->
@@ -201,7 +201,7 @@ handle_call({add_domain, Key, Domain, Login}, _From, #state{main_user_data=MUTid
             case ets:lookup(MUTid, Login) of
                 [] -> 
                     true;
-                [{_, Hosts}] ->
+                [{_, Hosts, _}] ->
                     NewList = lists:append([Hosts, [Domain]]),
                     %io:format("~p add domain: ~p:~p all ~p\n", [self(), Login, Domain, NewList]),
                     ets:insert(MUTid, {Login, NewList})
@@ -221,7 +221,7 @@ handle_call({del_domain, Key, Domain, Login}, _From, #state{main_user_data=MUTid
             case ets:lookup(MUTid, Login) of
                 [] -> 
                     true;
-                [{_, Hosts}] ->
+                [{_, Hosts, _}] ->
                     NewList = lists:delete(Domain, Hosts),
                     %io:format("~p remove domain: ~p Remaining ~p\n", [self(), Domain, NewList]),
                     ets:insert(MUTid, {Login, NewList})
@@ -365,7 +365,7 @@ get_users_pids(Logins, All, #state{users_pid_tableId=TableId, reg_users_data_tab
             case ets:lookup(MUTid, MLogin) of
                 [] -> 
                     NewAll = [];
-                [{_, Hosts}] ->
+                [{_, Hosts, _}] ->
                     %io:format("~p finded domain: ~p login ~p\n", [self(), Hosts, MLogin]),
                     NewAll = lists:append(All, get_pids_by_hosts(Hosts, Login, TableId))
             end

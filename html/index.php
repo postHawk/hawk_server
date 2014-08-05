@@ -14,10 +14,10 @@ echo "\n";
 print_r($api->add_user_to_group('test2', array('test_group', 'group1')));
 echo "\n";
 print_r($api->add_user_to_group('test', array('test_group', 'group1')));
-echo "\n";
-print_r($api->remove_user_from_group('test', array('test_group')));
-echo "\n";
-print_r($api->seng_group_message('test', 'tstt msg', array('test_group', 'group1')));
+//echo "\n";
+//print_r($api->remove_user_from_group('test', array('test_group')));
+//echo "\n";
+//print_r($api->seng_group_message('test', 'tstt msg', array('test_group', 'group1')));
 
 
 /*echo "\n";
@@ -41,7 +41,7 @@ echo '</pre>';
 
 	<body>
 
-		<div id="messages" style="width: 500px; height: 250px; border: 2px solid green;"></div>
+		<div id="messages" style="width: 500px; height: 250px; border: 2px solid green;overflow: auto;"></div>
 		Кому: <input id="to_u" type="text"><br>
 		Текст: <textarea id="to_m"></textarea><br>
 		<input type="button" id="send" value="Отправить">

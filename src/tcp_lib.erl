@@ -1,5 +1,6 @@
 -module(tcp_lib).
 -compile(export_all).
+-include("mac.hrl").
 
 get_ancestors(Pid) when is_pid(Pid) ->
     case erlang:process_info(Pid, dictionary) of
@@ -50,6 +51,15 @@ convert_to_atom(Value) when is_tuple (Value) ->
 	R = io_lib:format("~p",[Value]),
 	convert_to_atom(lists:flatten(R)).
 
+convert_to_binary(Value) when is_binary(Value) ->
+	Value;
+convert_to_binary(Value) when is_list(Value) ->
+	list_to_binary(Value);
+convert_to_binary(Value) when is_atom(Value) ->
+	atom_to_binary(Value, 'utf8');
+convert_to_binary(Value) when is_tuple(Value) ->
+	term_to_binary(Value).
+
 info(Pid) ->  
 	Spec = [registered_name],
  	case process_info(Pid, Spec) of
@@ -78,9 +88,7 @@ get_uniq_user_login(Login) when is_list(Login); is_binary(Login) ->
 
 get_uniq_user_login(Login, Counter) ->
 	NewLoginStr = [Login, "_u", integer_to_list(Counter)],
-	%io:format("~p new login str ~p\n", [self(), NewLoginStr]),	
 	NewLogin = convert_to_atom(NewLoginStr),
-	%io:format("~p new login atom ~p\n", [self(), NewLogin]),
 	case global:whereis_name(NewLogin) of
 		undefined ->
 			NewLogin;
@@ -101,8 +109,6 @@ get_login(Login) ->
 	end.
 
 get_json_from_post(POST_data) ->
-	%io:format("~p post messge ~p\n", [self(), POST_data]),	
-
 	case re:run(POST_data, "\"[^\r\n]+\"\r\n\r\n([^\r\n]+)\r\n", [global,{capture,[1],list}]) of
         {match, Matched} -> 
         	Str = lists:flatten(Matched),
@@ -110,6 +116,7 @@ get_json_from_post(POST_data) ->
         nomatch ->  
    			false
    	end.
+
 split_json_by_part(Str) ->
 	case re:run(Str, "^\{([^{]+)\}", [global,{capture,[1],list}]) of
 		{match, Qtype} ->
@@ -147,3 +154,20 @@ pid_2_name(Pid) ->
 		    end;
 		[] -> undefined
     end.
+
+unique_list(List) ->
+    lists:reverse(
+        lists:foldl(
+        	fun(X,Acc) ->
+                accumulate_unless(lists:member(X,Acc),X,Acc)
+         	end,
+        [],
+        List)).
+
+accumulate_unless(true, _X, Acc) ->
+    Acc;
+accumulate_unless(false, X, Acc) ->
+    [X|Acc].
+
+remove_dups([])    -> [];
+   remove_dups([H|T]) -> [H | [X || X <- remove_dups(T), X /= H]].

@@ -85,7 +85,6 @@ handle_call({new_message_from_host, Host}, _From, #state{count_all_message=Cnt_m
 	{reply, Reply, New_state};
 
 handle_call({init_message_for_host, Host, Cnt, Key}, _From, #state{ets_table=TableId} = State) ->
-	%io:format("~p key: ~p\n", [self(), Key]),
 	ets:insert(TableId, {Host, Cnt, Key}),
 	Reply = ok,
 	{reply, Reply, State}.
@@ -121,19 +120,16 @@ get_count_message(Host) ->
 	gen_server:call({global, ?MODULE}, {get_cnt_for_host, Host}).
 
 init_message(Host) ->
-	%io:format("~p Init message", [self()]),
 	Mong = mongoapi:new(hawk_statistics,<<"hawk">>),
 	define_records(),
 	B_host = list_to_binary(Host),
 
 	{ok, User} = Mong:findOne(#users{domain = B_host}, [#users.key]),
-	%io:format("~p user: ~p.\n", [self(), User]),
 	case User of
 		[] ->
 			{ok, false};
 		_ ->
 			{ok, Rec} = Mong:findOne(#message_log{domain = B_host}, [#message_log.cnt_mess]),
-			%io:format("~p finded rec ~p\n", [self(), Rec]),
 			
 			case Rec of
 				[] ->

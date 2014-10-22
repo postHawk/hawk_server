@@ -4,3 +4,4 @@ code:add_patha("ehttph/ebin/").
 application:start (erlmongo).
 application:start (tcp_server).
 crypto:start().
+observer:start().

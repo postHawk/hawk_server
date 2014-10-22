@@ -10,22 +10,22 @@ echo '<pre>';
 print_r($api->register_user('test'));
 echo "\n";
 print_r($api->register_user('test2'));
-echo "\n";
-print_r($api->add_user_to_group('test2', array('test_group', 'group1')));
-echo "\n";
-print_r($api->add_user_to_group('test', array('test_group', 'group1')));
-//echo "\n";
-//print_r($api->remove_user_from_group('test', array('test_group')));
-//echo "\n";
-//print_r($api->seng_group_message('test', 'tstt msg', array('test_group', 'group1')));
-
-
 /*echo "\n";
-print_r(json_decode($api->get_user_by_group(array('group1'))));
+print_r($api->add_user_to_group('test2', array('89e5d263c387e3ace58486c1eaa3adc7')));
 echo "\n";
-print_r(json_decode($api->get_user_by_group(array('test_group'))));
+print_r($api->add_user_to_group('test', array('testgroup', 'group1')));
 echo "\n";
-print_r(json_decode($api->get_user_by_group(array('test_group', 'group1'))));*/
+print_r($api->add_user_to_group('test2', array('group1')));
+echo "\n";
+print_r($api->remove_user_from_group('test', array('testgroup')));
+echo "\n";
+print_r($api->seng_group_message('test', 'tstt msg', array('testgroup', 'group1')));
+echo "\n";
+print_r(json_decode($api->get_user_by_group(array('89e5d263c387e3ace58486c1eaa3adc7'))));
+echo "\n";
+print_r(json_decode($api->get_user_by_group(array('testgroup'))));
+echo "\n";
+print_r(json_decode($api->get_user_by_group(array('testgroup', 'group1'))));*/
 
 
 echo '</pre>';

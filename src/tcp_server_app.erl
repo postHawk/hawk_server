@@ -16,18 +16,12 @@
 %% A startup function for spawning new client connection handling FSM.
 %% To be called by the TCP listener process.
 start_client(S_name) ->
-    %io:format("starting child for ~p ...", [S_name]),
-    {ok, Pid} = supervisor:start_child({global, S_name}, []),
-    %io:format("child ~p started\n", [Pid]),
-    {ok, Pid} .
+    supervisor:start_child({global, S_name}, []).
 
 start_domain_supervisor(Domain) ->
-  %io:format("exist ~p  ~p\n", [Domain, global:whereis_name(Domain)]),
   case global:whereis_name(Domain) of
     undefined ->
-      %io:format("starting sup ~p ...", [Domain]),
       {ok, Pid} = supervisor:start_child({global, tcp_client_sup}, []),
-      %io:format("started ~p\n", [global:pid_2_name(Pid)]),
       global:unregister_name(domain_sup),
       global:register_name(Domain, Pid);
     _ ->
@@ -40,7 +34,6 @@ start_client(Domain).
 %% Application behaviour callbacks
 %%----------------------------------------------------------------------
 start(_Type, _Args) ->
-%io:format("2\n"),
     ListenPort = get_app_env(listen_port, ?DEF_PORT),
     supervisor:start_link({global, ?MODULE}, ?MODULE, [ListenPort, tcp_message_fsm]).
  
@@ -51,7 +44,6 @@ stop(_S) ->
 %% Supervisor behaviour callbacks
 %%----------------------------------------------------------------------
 init([Port, Module]) ->
-%io:format("3\n"),
     {ok,
         {_SupFlags = {one_for_one, ?MAX_RESTART, ?MAX_TIME},
             [
@@ -78,13 +70,19 @@ init([Port, Module]) ->
                   2000,                                % Shutdown = brutal_kill | int() >= 0 | infinity
                   worker,                              % Type     = worker | supervisor
                   [statistic_server]                                       % Modules  = [Module] | dynamic
+              },
+			  {   api_manager,
+                  {api_manager, start_link, []},
+                  permanent,                               % Restart  = permanent | transient | temporary
+                  infinity,                                % Shutdown = brutal_kill | int() >= 0 | infinity
+                  supervisor,                              % Type     = worker | supervisor
+                  [api_manager]                                       % Modules  = [Module] | dynamic
               }
             ]
         }
     };
  
 init([Module]) ->
-%io:format("1\n"),
     {ok,
         {_SupFlags = {simple_one_for_one, ?MAX_RESTART, ?MAX_TIME},
             [

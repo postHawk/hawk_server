@@ -28,7 +28,8 @@
     domain
 }).
 
--record(users_in_group, {group, users}).
+-record(users_in_group, {group, user, online}).
+-record(users_in_group_for_message, {group, users}).
 
 
 %% ====================================================================
@@ -124,7 +125,6 @@ handle_cast({From, {check_user, Id}}, State) ->
     {stop, normal, State};
 
 handle_cast({From, {check_user_domain, Id, Domain}}, State) ->
-
     case ets:lookup(reg_users_data, Id) of
         [] ->
             Reply = {ok, false};
@@ -184,7 +184,6 @@ handle_cast({From, {del_domain, Key, Domain, Login}}, State) ->
     gen_server:reply(From, Res),
     {stop, normal, State};
 
-
 handle_cast({From, {register_pid, Pid, Login}}, State) ->
 
     case ets:lookup(users_pids, Login) of
@@ -211,7 +210,7 @@ handle_cast({From, {unregister_pid, Pid, Login}}, State) ->
     {stop, normal, State};
 
 handle_cast({From, {get_pids, Login}}, State) ->
-    All = get_users_pids(Login, State),
+    All = get_users_pids(Login),
 	
     gen_server:reply(From, All),
     {stop, normal, State};
@@ -285,20 +284,32 @@ handle_cast({From, {get_by_group, Key, Groups}}, State) ->
             Reply = <<"invalid_api_key">>;
         _ ->
             #users{login=ULogin} = User,
-            Reply = get_users_by_groups(Groups, groups_to_user, ULogin, State)
+            Reply = get_users_by_groups(Groups, ULogin)
     end,
     
     gen_server:reply(From, Reply),
+    {stop, normal, State};
+
+handle_cast({From, {get_by_group_for_message, Key, Groups}}, State) ->
+    {ok, User} = get_user_by_key(Key),
+    case User of
+        [] ->
+            Reply = <<"invalid_api_key">>;
+        _ ->
+            #users{login=ULogin} = User,
+            Reply = get_users_by_groups_for_message(Groups, ULogin)
+    end,
+
+    gen_server:reply(From, Reply),
     {stop, normal, State}.
-
 %==============================================================
-get_users_pids(Login, State)  ->
-    get_users_pids([Login], [], State).
+get_users_pids(Login)  ->
+    get_users_pids([Login], []).
 
-get_users_pids([], All, _State)  ->
+get_users_pids([], All)  ->
     All;
 
-get_users_pids(Logins, All, State) when is_list(Logins) ->
+get_users_pids(Logins, All) when is_list(Logins) ->
     [Login|T] = Logins,
     Key = binary_to_atom(Login, utf8),
     case ets:lookup(reg_users_data, Key) of
@@ -309,52 +320,81 @@ get_users_pids(Logins, All, State) when is_list(Logins) ->
                 [] -> 
                     NewAll = [];
                 [{_, Hosts, _}] ->
-                    NewAll = lists:append(All, get_pids_by_hosts(Hosts, Login, users_pids))
+                    NewAll = lists:append(All, get_pids_by_hosts(Hosts, Login))
             end
     end,
-    get_users_pids(T, NewAll, State).
+    get_users_pids(T, NewAll).
 
 %==============================================================
-get_pids_by_hosts(Hosts, Login, TableId) ->
-    get_pids_by_hosts(Hosts, [], Login, TableId).
+get_pids_by_hosts(Hosts, Login) ->
+    get_pids_by_hosts(Hosts, [], Login).
 
-get_pids_by_hosts([], All, _, _) ->
+get_pids_by_hosts([], All, _) ->
     All;
-get_pids_by_hosts(Hosts, All, Login, TableId) ->
+get_pids_by_hosts(Hosts, All, Login) ->
     [Host|NewHosts] = Hosts,
     Login_u = tcp_lib:get_login([Host, "_", Login]),
-    case ets:lookup(TableId, Login_u) of
+    case ets:lookup(users_pids, Login_u) of
         [] ->
             NewAll = lists:append([All, []]);
         [{_, List}] ->
             NewAll = lists:append([All, List])
     end,
-    get_pids_by_hosts(NewHosts, NewAll, Login, TableId).
+    get_pids_by_hosts(NewHosts, NewAll, Login).
 
 %==============================================================
-get_users_by_groups(Groups, UGTableId, ULogin, State) ->
-    get_users_by_groups(Groups, UGTableId, [], ULogin, State).
+get_users_by_groups(Groups, ULogin) ->
+    get_users_by_groups(Groups, [], ULogin).
 
-get_users_by_groups([], _UGTableId, All, _ULogin, _State) ->
+get_users_by_groups([], All, _ULogin) ->
     All;
 
-get_users_by_groups(Groups, UGTableId, All, ULogin, State) ->
+get_users_by_groups(Groups, All, ULogin) ->
     [Gr|T] = Groups,
-    case ets:lookup(UGTableId, {Gr, ULogin}) of
+    case ets:lookup(groups_to_user, {Gr, ULogin}) of
+        [] ->
+            NewAll = All;
+        [{_, Users}] ->
+			
+			NewAll = [get_users_records(Users, Gr)|All]
+    end,
+    get_users_by_groups(T, NewAll, ULogin).
+
+
+%==============================================================
+get_users_by_groups_for_message(Groups, ULogin) ->
+    get_users_by_groups_for_message(Groups, [], ULogin).
+
+get_users_by_groups_for_message([], All, _ULogin) ->
+    All;
+
+get_users_by_groups_for_message(Groups, All, ULogin) ->
+    [Gr|T] = Groups,
+    case ets:lookup(groups_to_user, {Gr, ULogin}) of
         [] ->
             NewAll = lists:append([All, []]);
         [{_, Users}] ->
-			
-            NewAll = lists:append([All, [#users_in_group{group=Gr, users=Users}]])
-    end,
-    get_users_by_groups(T, UGTableId, NewAll, ULogin, State).
+            NewAll = lists:append([All, [#users_in_group_for_message{group=Gr, users=Users}]])
+	end,
+    get_users_by_groups_for_message(T, NewAll, ULogin).
 
- is_user_online(U, State) ->
-	case get_users_pids(U, State) of
+%==============================================================
+get_users_records(Users, Gr) ->
+	get_users_records(Users, Gr, []).
+
+get_users_records([], _Gr, All) ->
+	All;
+get_users_records(Users, Gr, All) ->
+	[U|T] = Users,
+	NewAll = [#users_in_group{group=Gr, user=U, online=is_user_online(U)}|All],
+	get_users_records(T, Gr, NewAll).
+
+ is_user_online(U) ->
+	case get_users_pids(U) of
 		[] ->
-			[false];
+			false;
 		_ ->
-			[true]
+			true
 	end.
 
 handle_info(_Data, State) ->

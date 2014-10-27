@@ -33,7 +33,8 @@
 -record(remove_from_groups, {key, id, groups}).
 -record(send_group_message, {key, text, groups, time, from}).
 -record(get_by_group, {key, groups}).
--record(users_in_group, {group, users}).
+-record(users_in_group, {group, user, online}).
+-record(users_in_group_for_message, {group, users}).
 
 -record(state,{
 	socket,    % client socket
@@ -371,7 +372,7 @@ action_on_user({remove_from_groups, _Key, _Id, _Groups}, _State) ->
 	<<"invalid_group_format">>;
 
 action_on_user({send_group_message, Key, Text, Groups, Time, From}, State) when is_list(Groups) ->
-	Res = get_data_from_worker({get_by_group, Key, Groups}),
+	Res = get_data_from_worker({get_by_group_for_message, Key, Groups}),
 	Users = get_users_from_groups(Res, From),
 	UnUsers = lists:usort(Users),
 
@@ -386,7 +387,7 @@ action_on_user({send_group_message, _Key, _Text, _Groups, _Time, _From}, _State)
 	<<"invalid_group_format">>;
 
 action_on_user({get_by_group, Key, Groups}, _State) when is_list(Groups) ->
-	Res = get_data_from_worker({get_by_group, Key, Groups}),
+	Res = tcp_lib:flatten(get_data_from_worker({get_by_group, Key, Groups})),
 	?list_records_to_json(users_in_group, Res);
 
 action_on_user({get_by_group, _Key, _Groups}, _State) ->
@@ -408,7 +409,7 @@ get_users_from_groups(Groups, From) ->
 
  get_users_from_groups(Groups, All, From) ->
 	[H|T] = Groups,
-	{users_in_group, _GrpName, Users} = H,
+	{users_in_group_for_message, _GrpName, Users} = H,
 	%сообщения можно слать только в рамках своих групп
 	case lists:member(From, Users) of
 		true ->

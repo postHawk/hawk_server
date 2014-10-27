@@ -171,3 +171,10 @@ accumulate_unless(false, X, Acc) ->
 
 remove_dups([])    -> [];
    remove_dups([H|T]) -> [H | [X || X <- remove_dups(T), X /= H]].
+
+flatten(X)               -> flatten(X,[]).
+
+flatten([],Acc)          -> Acc;
+flatten([[]|T],Acc)      -> flatten(T, Acc);
+flatten([[_|_]=H|T],Acc) -> flatten(T, flatten(H,Acc));
+flatten([H|T],Acc)       -> flatten(T,Acc++[H]) .

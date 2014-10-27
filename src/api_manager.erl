@@ -17,7 +17,7 @@
 -record(state, {worker_pool}).
 
 init([]) ->
-
+	process_flag(trap_exit, true),
 	supervisor:start_link({global, api_sup}, api_sup, []),
 	
 	%информация о зарегистрированных пользователях

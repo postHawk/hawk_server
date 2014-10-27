@@ -16,6 +16,7 @@ get_worker() ->
 	supervisor:start_child({global, ?MODULE}, []).
 
 init([]) ->
+	process_flag(trap_exit, true),
     {ok,
         {_SupFlags = {simple_one_for_one, ?MAX_RESTART, ?MAX_TIME},
             [

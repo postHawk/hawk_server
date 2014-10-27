@@ -51,14 +51,22 @@ convert_to_atom(Value) when is_tuple (Value) ->
 	R = io_lib:format("~p",[Value]),
 	convert_to_atom(lists:flatten(R)).
 
-convert_to_binary(Value) when is_binary(Value) ->
+convert_to_binary([], Value) ->
+	lists:reverse(Value);
+convert_to_binary([H|T] = _Value, Acc) ->
+	NewAcc = [convert_to_binary({conv, H})|Acc],
+	convert_to_binary(T, NewAcc).
+
+convert_to_binary({conv, Value}) when is_binary(Value) ->
 	Value;
-convert_to_binary(Value) when is_list(Value) ->
+convert_to_binary({conv, Value}) when is_list(Value) ->
 	list_to_binary(Value);
-convert_to_binary(Value) when is_atom(Value) ->
+convert_to_binary({conv, Value}) when is_atom(Value) ->
 	atom_to_binary(Value, 'utf8');
-convert_to_binary(Value) when is_tuple(Value) ->
-	term_to_binary(Value).
+convert_to_binary({conv, Value}) when is_tuple(Value) ->
+	term_to_binary(Value);
+convert_to_binary(Value) when is_list(Value)->
+	convert_to_binary(Value, []).
 
 info(Pid) ->  
 	Spec = [registered_name],

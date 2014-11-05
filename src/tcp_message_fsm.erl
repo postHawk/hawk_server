@@ -177,8 +177,8 @@ handle_login_main_data({ok,true}, {ok,true}, {ok,false}, _StrLogin, _Login, _Reg
 		{next_state, 'WAIT_LOGIN_MESSAGE', State};
 
 handle_login_main_data({ok,true}, {ok,true}, {ok, Cnt}, StrLogin, Login, Register_login, #state{socket=S} = State) ->
-	NewLogin = tcp_lib:get_uniq_user_login(StrLogin),
-	global:register_name(NewLogin, self()),
+ 	NewLogin = tcp_lib:get_uniq_user_login(StrLogin),
+%% 	global:register_name(NewLogin, self()),
 
 	get_data_from_worker({register_pid, self(), Login}),
 	tcp_lib:send_message(mask(<<"ok">>), S),
@@ -259,6 +259,7 @@ handle_json_message(false, #state{socket=S, count_message=Cnt}) ->
 	Cnt.
 
  %===============================================
+
 handle_user_message(Output, [], Cnt, _To_data, _Login, #state{socket=S} = _State) ->
 	case Output of
 		on_output ->
@@ -361,13 +362,11 @@ action_on_user({del_domain, Key, Domain, Login}, _State) ->
 
 action_on_user({add_in_groups, Key, Id, Groups}, _State) when is_list(Groups) ->
 	get_data_from_worker({add_in_groups, Key, Id, Groups});
-
 action_on_user({add_in_groups, _Key, _Id, _Groups}, _State) ->
 	<<"invalid_group_format">>;
 
 action_on_user({remove_from_groups, Key, Id, Groups}, _State) when is_list(Groups) ->
 	get_data_from_worker({remove_from_group, Key, Id, Groups});
-
 action_on_user({remove_from_groups, _Key, _Id, _Groups}, _State) ->
 	<<"invalid_group_format">>;
 
@@ -389,7 +388,6 @@ action_on_user({send_group_message, _Key, _Text, _Groups, _Time, _From}, _State)
 action_on_user({get_by_group, Key, Groups}, _State) when is_list(Groups) ->
 	Res = tcp_lib:flatten(get_data_from_worker({get_by_group, Key, Groups})),
 	?list_records_to_json(users_in_group, Res);
-
 action_on_user({get_by_group, _Key, _Groups}, _State) ->
 	<<"invalid_group_format">>.	
 
@@ -401,67 +399,34 @@ check_login_format(Data) ->
         	false
       end.
 
+
 get_users_from_groups(Groups, From) ->
-	get_users_from_groups(Groups, [], From).
-
- get_users_from_groups([], All, _From) ->
-	All;
-
- get_users_from_groups(Groups, All, From) ->
-	[H|T] = Groups,
-	{users_in_group_for_message, _GrpName, Users} = H,
-	%сообщения можно слать только в рамках своих групп
-	case lists:member(From, Users) of
-		true ->
-			NewAll = lists:append(All, Users);
-		false ->
-			NewAll = []
+	Fun = fun(H) ->
+		{users_in_group_for_message, _GrpName, Users} = H,
+		%сообщения можно слать только в рамках своих групп
+		case lists:member(From, Users) of
+			true ->
+				Users;
+			false ->
+				[]
+		end
 	end,
-	get_users_from_groups(T, NewAll, From).
+	lists:flatten(lists:map(Fun, Groups)).
 
-
-%%-------------------------------------------------------------------------
-%% Func: handle_event/3
-%% Returns: {next_state, NextStateName, NextStateData}          |
-%%          {next_state, NextStateName, NextStateData, Timeout} |
-%%          {stop, Reason, NewStateData}
-%% @private
-%%-------------------------------------------------------------------------
 handle_event(Event, StateName, StateData) ->
     {stop, {StateName, undefined_event, Event}, StateData}.
  
-%%-------------------------------------------------------------------------
-%% Func: handle_sync_event/4
-%% Returns: {next_state, NextStateName, NextStateData}            |
-%%          {next_state, NextStateName, NextStateData, Timeout}   |
-%%          {reply, Reply, NextStateName, NextStateData}          |
-%%          {reply, Reply, NextStateName, NextStateData, Timeout} |
-%%          {stop, Reason, NewStateData}                          |
-%%          {stop, Reason, Reply, NewStateData}
-%% @private
-%%-------------------------------------------------------------------------
 handle_sync_event(Event, _From, StateName, StateData) ->
     {stop, {StateName, undefined_event, Event}, StateData}.
  
-%%-------------------------------------------------------------------------
-%% Func: handle_info/3
-%% Returns: {next_state, NextStateName, NextStateData}          |
-%%          {next_state, NextStateName, NextStateData, Timeout} |
-%%          {stop, Reason, NewStateData}
-%% @private
-%%-------------------------------------------------------------------------
 handle_info({tcp, Socket, Bin}, StateName, #state{socket=Socket} = StateData) ->
-    % Flow control: enable forwarding of next TCP message
-	
     inet:setopts(Socket, [{active, once}]),
    	?MODULE:StateName({data, Bin}, StateData);
-    
  
 handle_info({tcp_closed, Socket}, _StateName,
             #state{socket=Socket, login=Login} = StateData) ->
 	disconect_user(Login),
     {stop, normal, StateData};
- 
 handle_info(Data, StateName, StateData) ->
 	 ?MODULE:StateName(Data, StateData).
 
@@ -469,22 +434,10 @@ disconect_user(Login) ->
 	get_data_from_worker({unregister_pid, self(), Login}),
     error_logger:info_msg("~p Client ~p disconnected.\n", [self(), Login]).
 
-%%-------------------------------------------------------------------------
-%% Func: terminate/3
-%% Purpose: Shutdown the fsm
-%% Returns: any
-%% @private
-%%-------------------------------------------------------------------------
 terminate(_Reason, _StateName, #state{socket=Socket}) ->
     (catch gen_tcp:close(Socket)),
     ok.
  
-%%-------------------------------------------------------------------------
-%% Func: code_change/4
-%% Purpose: Convert process state when code is changed
-%% Returns: {ok, NewState, NewStateData}
-%% @private
-%%-------------------------------------------------------------------------
 code_change(_OldVsn, StateName, StateData, _Extra) ->
     {ok, StateName, StateData}.
 

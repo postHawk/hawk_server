@@ -49,18 +49,6 @@ init([]) ->
 %% Internal functions
 %% ====================================================================
 
-%%-------------------------------------------------------------------------
-%% @spec (Request, From, State) -> {reply, Reply, State}          |
-%%                                 {reply, Reply, State, Timeout} |
-%%                                 {noreply, State}               |
-%%                                 {noreply, State, Timeout}      |
-%%                                 {stop, Reason, Reply, State}   |
-%%                                 {stop, Reason, State}
-%% @doc Callback for synchronous server calls.  If `{stop, ...}' tuple
-%%      is returned, the server is stopped and `terminate/2' is called.
-%% @end
-%% @private
-%%-------------------------------------------------------------------------
 handle_cast({From, {register_user, Key, Id}}, State) ->
     {ok, User} = get_user_by_key(Key),
     case User of
@@ -215,6 +203,8 @@ handle_cast({From, {get_pids, Login}}, State) ->
     gen_server:reply(From, All),
     {stop, normal, State};
 
+%ужас, нужно что-то с этим сделать
+%оптимально перенести группы в монгу
 handle_cast({From, {add_in_groups, Key, Login, Groups}}, State) ->
     {ok, User} = get_user_by_key(Key),
     case User of
@@ -302,92 +292,67 @@ handle_cast({From, {get_by_group_for_message, Key, Groups}}, State) ->
 
     gen_server:reply(From, Reply),
     {stop, normal, State}.
-%==============================================================
+
+get_users_pids(Logins) when is_list(Logins) ->
+    Fun = fun(Login) ->
+		    Key = binary_to_atom(Login, utf8),
+		    case ets:lookup(reg_users_data, Key) of
+		        [] -> 
+		           [];
+		        [{_, MLogin}] ->
+		            case ets:lookup(main_user_data, MLogin) of
+		                [] -> 
+		                    [];
+		                [{_, Hosts, _}] ->
+		                    get_pids_by_hosts(Hosts, Login)
+		            end
+		    end
+		end,
+		lists:flatten(lists:map(Fun, Logins));
+
 get_users_pids(Login)  ->
-    get_users_pids([Login], []).
+    get_users_pids([Login]).
 
-get_users_pids([], All)  ->
-    All;
-
-get_users_pids(Logins, All) when is_list(Logins) ->
-    [Login|T] = Logins,
-    Key = binary_to_atom(Login, utf8),
-    case ets:lookup(reg_users_data, Key) of
-        [] -> 
-           NewAll = [];
-        [{_, MLogin}] ->
-            case ets:lookup(main_user_data, MLogin) of
-                [] -> 
-                    NewAll = [];
-                [{_, Hosts, _}] ->
-                    NewAll = lists:append(All, get_pids_by_hosts(Hosts, Login))
-            end
-    end,
-    get_users_pids(T, NewAll).
-
-%==============================================================
 get_pids_by_hosts(Hosts, Login) ->
-    get_pids_by_hosts(Hosts, [], Login).
+	Fun = fun(Host) -> 
+		    Login_u = tcp_lib:get_login([Host, "_", Login]),
+		    case ets:lookup(users_pids, Login_u) of
+		        [] ->
+		            [];
+		        [{_, List}] ->
+		            List
+		    end
+		end,
+    lists:flatten(lists:map(Fun, Hosts)).
 
-get_pids_by_hosts([], All, _) ->
-    All;
-get_pids_by_hosts(Hosts, All, Login) ->
-    [Host|NewHosts] = Hosts,
-    Login_u = tcp_lib:get_login([Host, "_", Login]),
-    case ets:lookup(users_pids, Login_u) of
-        [] ->
-            NewAll = lists:append([All, []]);
-        [{_, List}] ->
-            NewAll = lists:append([All, List])
-    end,
-    get_pids_by_hosts(NewHosts, NewAll, Login).
-
-%==============================================================
 get_users_by_groups(Groups, ULogin) ->
-    get_users_by_groups(Groups, [], ULogin).
-
-get_users_by_groups([], All, _ULogin) ->
-    All;
-
-get_users_by_groups(Groups, All, ULogin) ->
-    [Gr|T] = Groups,
-    case ets:lookup(groups_to_user, {Gr, ULogin}) of
-        [] ->
-            NewAll = All;
-        [{_, Users}] ->
-			
-			NewAll = [get_users_records(Users, Gr)|All]
-    end,
-    get_users_by_groups(T, NewAll, ULogin).
+    Fun = fun(Gr) -> 
+		    case ets:lookup(groups_to_user, {Gr, ULogin}) of
+		        [] ->
+		           [];
+		        [{_, Users}] ->
+					get_users_records(Users, Gr)
+		    end
+		end,
+    lists:flatten(lists:map(Fun, Groups)).
 
 
-%==============================================================
 get_users_by_groups_for_message(Groups, ULogin) ->
-    get_users_by_groups_for_message(Groups, [], ULogin).
+   Fun = fun(Gr) -> 
+		    case ets:lookup(groups_to_user, {Gr, ULogin}) of
+		        [] ->
+		            [];
+		        [{_, Users}] ->
+		           [#users_in_group_for_message{group=Gr, users=Users}]
+			end
+		end,
+    lists:flatten(lists:map(Fun, Groups)).
 
-get_users_by_groups_for_message([], All, _ULogin) ->
-    All;
-
-get_users_by_groups_for_message(Groups, All, ULogin) ->
-    [Gr|T] = Groups,
-    case ets:lookup(groups_to_user, {Gr, ULogin}) of
-        [] ->
-            NewAll = lists:append([All, []]);
-        [{_, Users}] ->
-            NewAll = lists:append([All, [#users_in_group_for_message{group=Gr, users=Users}]])
-	end,
-    get_users_by_groups_for_message(T, NewAll, ULogin).
-
-%==============================================================
 get_users_records(Users, Gr) ->
-	get_users_records(Users, Gr, []).
-
-get_users_records([], _Gr, All) ->
-	All;
-get_users_records(Users, Gr, All) ->
-	[U|T] = Users,
-	NewAll = [#users_in_group{group=Gr, user=U, online=is_user_online(U)}|All],
-	get_users_records(T, Gr, NewAll).
+	Fun = fun(U) -> 
+			[#users_in_group{group=Gr, user=U, online=is_user_online(U)}]
+		end,
+    lists:flatten(lists:map(Fun, Users)).
 
  is_user_online(U) ->
 	case get_users_pids(U) of

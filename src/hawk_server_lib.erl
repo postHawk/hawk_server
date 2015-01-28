@@ -1,4 +1,4 @@
--module(tcp_lib).
+-module(hawk_server_lib).
 -compile(export_all).
 -include("mac.hrl").
 
@@ -77,7 +77,6 @@ info(Pid) ->
       		[{pid, Pid}|Result]
 	end.
 
-%можно немного оптимизировать так как is_pid вернёт тру, когда процес существует
 get_uniq_user_login(Login) when is_pid(Login); is_atom(Login) ->
 	case global:whereis_name(Login) of
 		undefined ->
@@ -116,15 +115,6 @@ get_login(Login) ->
 		end
 	end.
 
-get_json_from_post(POST_data) ->
-	case re:run(POST_data, "\"[^\r\n]+\"\r\n\r\n([^\r\n]+)\r\n", [global,{capture,[1],list}]) of
-        {match, Matched} -> 
-        	Str = lists:flatten(Matched),
-        	split_json_by_part(Str);
-        nomatch ->  
-   			false
-   	end.
-
 split_json_by_part(Str) ->
 	case re:run(Str, "^\{([^{]+)\}", [global,{capture,[1],list}]) of
 		{match, Qtype} ->
@@ -141,12 +131,12 @@ is_post_req(Data) ->
 			get
     end.
 
-send_message({ok, Frame}, S) ->
+send_message({ok, Frame}, S, T) ->
 	case erlang:port_info(S) of
 		undefined ->
 			true;
 		_ -> 
-			ok = gen_tcp:send(S, Frame)
+			ok = T:send(S, Frame)
 	end.
 
 pid_2_name(Pid) ->
@@ -186,3 +176,18 @@ flatten([],Acc)          -> Acc;
 flatten([[]|T],Acc)      -> flatten(T, Acc);
 flatten([[_|_]=H|T],Acc) -> flatten(T, flatten(H,Acc));
 flatten([H|T],Acc)       -> flatten(T,Acc++[H]) .
+
+parse_header(Headers)->
+	[HeadersL, Body] = binary:split(Headers, <<"\r\n\r\n">>),
+	HList = binary:split(HeadersL, <<"\r\n">>, [global]),
+	[format_headers(HList), {body, Body}].
+
+format_headers(Headers) ->
+	format_headers(Headers, []).
+
+format_headers([], Acc) ->
+	lists:reverse(Acc);
+format_headers([H|T] = _Headers, Acc) ->
+	[Name, Val] = binary:split(H, <<": ">>),
+	format_headers(T, [{Name, Val}|Acc]).
+	

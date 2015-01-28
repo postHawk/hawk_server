@@ -1,8 +1,8 @@
 %% @author Maximilian
-%% @doc @todo Add description to api_manager.
+%% @doc @todo Add description to hawk_server_api_manager.
 
 
--module(api_manager).
+-module(hawk_server_api_manager).
 -behaviour(gen_server).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
@@ -18,16 +18,7 @@
 
 init([]) ->
 	process_flag(trap_exit, true),
-	supervisor:start_link({global, api_sup}, api_sup, []),
-	
-	%информация о зарегистрированных пользователях
-    ets:new(reg_users_data, [ordered_set, public, named_table]),
-    %информация о процессах пользователя
-    ets:new(users_pids, [ordered_set, public, named_table]),
-    %информация о регистрационыых заспиях (на сайте сервиса из монги)
-    ets:new(main_user_data, [ordered_set, public, named_table]),
-    %принадлежность пользователя к  группе
-    ets:new(groups_to_user, [ordered_set, public, named_table]),
+	supervisor:start_link({local, hawk_server_api_sup}, hawk_server_api_sup, []),
     
     {ok, #state{worker_pool=[]}}.
 
@@ -35,7 +26,7 @@ start_link() ->
 	gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 handle_call(Params, From, State) ->
-    {ok, Pid} = api_sup:get_worker(),
+    {ok, Pid} = hawk_server_api_sup:get_worker(),
 	gen_server:cast(Pid, {From, Params}),
 
     {noreply, State}.

@@ -1,9 +1,0 @@
-[submodule "bso_n"]
-	path = bso_n
-	url = https://github.com/mongodb/bson-erlang.git
-[submodule "mongodb"]
-	path = mongodb
-	url = https://github.com/SergejJurecko/erlmongo.git
-[submodule "hawk_api"]
-	path = html/api
-	url = https://bitbucket.org/Slavenin/hawk_api.git

@@ -1,4 +1,4 @@
--module(tcp_message_fsm).
+-module(hawk_server_chat_worker_old).
 -author('mbarulin@gmail.com').
  
 -behaviour(gen_fsm).
@@ -19,7 +19,7 @@
 	'POST_ANSWER'/2
 ]).
  
--include("jsonerl.hrl").
+-include("../deps/jsonerl/src/jsonerl.hrl").
 
 -record(message, {from, to, time, text}).
 
@@ -34,7 +34,7 @@
 -record(send_group_message, {key, text, groups, time, from}).
 -record(get_by_group, {key, groups}).
 -record(users_in_group, {group, user, online}).
--record(users_in_group_for_message, {group, users}).
+
 
 -record(state,{
 	socket,    % client socket
@@ -44,7 +44,8 @@
 	key,
 	login,
 	curent_login,
-	register_login
+	register_login,
+	transport
 }).
  
 %%%------------------------------------------------------------------------
@@ -52,7 +53,7 @@
 %%%------------------------------------------------------------------------
  
 get_data_from_worker(Params) ->
-	gen_server:call(api_manager, Params).
+	gen_server:call(hawk_server_api_manager, Params).
 
 
 %%-------------------------------------------------------------------------
@@ -65,7 +66,7 @@ get_data_from_worker(Params) ->
 %% @end
 %%-------------------------------------------------------------------------
 start_link() ->
-    gen_fsm:start_link({global, tcp_lib:get_uniq_user_login(worker)}, ?MODULE, [], []).
+    gen_fsm:start_link(?MODULE, [], []).
  
 set_socket(Pid, Socket, Data, Host) when is_pid(Pid), is_port(Socket) ->
     gen_fsm:send_event(Pid, {socket_ready, Socket, Host}),
@@ -84,7 +85,8 @@ set_socket(Pid, Socket, Data, Host) when is_pid(Pid), is_port(Socket) ->
 %% @private
 %%-------------------------------------------------------------------------
 init([]) ->
-	global:unregister_name(tcp_lib:pid_2_name(self())),
+%% 	global:unregister_name(hawk_server_lib:pid_2_name(self())),
+%% 	unregister(hawk_server_lib:pid_2_name(self())),
     process_flag(trap_exit, true),
     {ok, 'WAIT_FOR_SOCKET', #state{}}.
  
@@ -95,11 +97,17 @@ init([]) ->
 %%          {stop, Reason, NewStateData}
 %% @private
 %%-------------------------------------------------------------------------
-'WAIT_FOR_SOCKET'({socket_ready, Socket, H_name}, State) when is_port(Socket) ->
+'WAIT_FOR_SOCKET'({socket_ready, Socket, H_name, Transport}, State) when is_port(Socket) ->
     % Now we own the socket
     inet:setopts(Socket, [{active, once}, binary]),
 	
-    {next_state, 'WAIT_FOR_DATA', State#state{socket=Socket, host_name=H_name, count_message=0}, ?TIMEOUT};
+    {next_state, 'WAIT_FOR_DATA', State#state{
+		  socket=Socket, 
+		  host_name=H_name, 
+		  count_message=0, 
+		  transport=Transport
+	 	}, 
+	 ?TIMEOUT};
 
 'WAIT_FOR_SOCKET'(Other, State) ->
     error_logger:error_msg("State: 'WAIT_FOR_SOCKET'. Unexpected message: ~p\n", [Other]),
@@ -109,7 +117,7 @@ init([]) ->
  %===============================================
 %% Notification event coming from client
 'WAIT_FOR_DATA'({data, Data}, State) ->
-	handle_req_by_type(tcp_lib:is_post_req(Data), Data, State);
+	handle_req_by_type(hawk_server_lib:is_post_req(Data), Data, State);
 		 
 'WAIT_FOR_DATA'(timeout, State) ->
     error_logger:error_msg("~p Client connection timeout - closing.\n", [self()]),
@@ -122,14 +130,19 @@ init([]) ->
  	inet:setopts(S, [{active, false}, binary]),
 	?MODULE:'POST_ANSWER'({data, Data}, State);
 
- handle_req_by_type(get, Data, #state{socket=S} = State) ->
- 	case re:run(Data, "Sec-WebSocket-Key:[\s]{0,1}(.*)\r\n",[global,{capture,[1],list}]) of
-        {match, Res} -> 
-			{ok, B_all_answ} = get_awsw_key(Res);
-        nomatch ->  
-			B_all_answ = <<"invalid_handshake">>
+ handle_req_by_type(get, Data, #state{socket=S, transport=Transport} = State) ->
+ 	
+	{ok, {http_request,_Method,{abs_path, _URL},_}, H} = erlang:decode_packet(http, Data, []),
+	[Headers, {body, _Body}] = hawk_server_lib:parse_header(H),
+	
+	Key = hawk_server_lib:get_header(<<"Sec-WebSocket-Key">>, Headers),
+	
+	case Key of
+        undefined -> B_all_answ = ?ERROR_INVALID_HANDSHAKE;
+		_ -> {ok, B_all_answ} = get_awsw_key(Key)
     end,
-	tcp_lib:send_message({ok, B_all_answ}, S),
+
+	hawk_server_lib:send_message({ok, B_all_answ}, S, Transport),
 	{next_state, 'WAIT_LOGIN_MESSAGE', State#state{count_message=0}}.
  
  %===============================================
@@ -139,55 +152,55 @@ init([]) ->
 
 handle_login_format(true, Data, #state{host_name=H_name} = State) ->
 	StrLogin = list_to_binary([H_name, "_", Data]),
-	Login = tcp_lib:get_login([H_name, "_", Data]),
 
-	case Login of
-		false ->
-			get_data_from_worker({unregister_pid, self(), Login}),
-			{stop, normal, State};
-		_ ->
-			User_id = binary_to_atom(Data, utf8),
-			Ex_domain = get_data_from_worker({check_user_domain, User_id, list_to_binary(lists:flatten(H_name))}),
-			Ex_user = get_data_from_worker({check_user, User_id}),
-			Init_m = statistic_server:init_message(H_name),
-			
-			handle_login_main_data(Ex_domain, Ex_user, Init_m, StrLogin, Login, Data, State)
-	end;
+	gproc:reg({p,l,user_login}, StrLogin),
+	
+	User_id = binary_to_atom(Data, utf8),
+	Ex_domain = get_data_from_worker({check_user_domain, User_id, list_to_binary(lists:flatten(H_name))}),
+	Ex_user = get_data_from_worker({check_user, User_id}),
+	Init_m = hawk_server_statistic:init_message(H_name),
+	
+	handle_login_main_data(Ex_domain, Ex_user, Init_m, StrLogin, Data, State);
 
-handle_login_format(false, _Data, #state{socket=S} = State) ->
+handle_login_format(false, _Data, #state{socket=S, transport=Transport} = State) ->
 	case erlang:port_info(S) of
 		undefined ->
 			true;
 		_ -> 
-			tcp_lib:send_message(mask(<<"invalid_login_format">>), S)
+			hawk_server_lib:send_message(mask(?ERROR_INVALID_LOGIN_FORMAT), S, Transport)
 	end,
 	{next_state, 'WAIT_LOGIN_MESSAGE', State}.
 
-handle_login_main_data({ok,false}, _, _, _StrLogin, _Login, _Register_login, #state{socket=S} = State) ->
-		tcp_lib:send_message(mask(<<"domain_not_register">>), S),
-  	 	gen_tcp:close(S),
-		{stop, normal, State};
+handle_login_main_data({ok,false, Reason}, _, _, _, _, #state{socket=S, transport=Transport} = State) ->
+	Msg = 
+		case Reason of
+			no_id -> ?ERROR_USER_NOT_REGISTER;
+			no_login -> ?ERROR_INVALID_KEY;
+			no_domain -> ?ERROR_DOMAIN_NOT_REGISTER
+		end,
+	
+	hawk_server_lib:send_message(mask(Msg), S, Transport),
+  	Transport:close(S),
+	{stop, normal, State};
 
-handle_login_main_data({ok,true}, {ok,false}, _, _StrLogin, _Login, _Register_login, #state{socket=S} = State) ->
-  	 	tcp_lib:send_message(mask(<<"user_not_register">>), S),
+handle_login_main_data({ok,true}, {ok,false}, _, _, _, #state{socket=S, transport=Transport} = State) ->
+  	 	hawk_server_lib:send_message(mask(?ERROR_USER_NOT_REGISTER), S, Transport),
 		{next_state, 'WAIT_LOGIN_MESSAGE', State};
 
-handle_login_main_data({ok,true}, {ok,true}, {ok,false}, _StrLogin, _Login, _Register_login, #state{socket=S} = State) ->
-  	 	tcp_lib:send_message(mask(<<"invalid_key">>), S),
+handle_login_main_data({ok,true}, {ok,true}, {ok,false}, _, _, #state{socket=S, transport=Transport} = State) ->
+  	 	hawk_server_lib:send_message(mask(?ERROR_INVALID_KEY), S, Transport),
 		{next_state, 'WAIT_LOGIN_MESSAGE', State};
 
-handle_login_main_data({ok,true}, {ok,true}, {ok, Cnt}, StrLogin, Login, Register_login, #state{socket=S} = State) ->
- 	NewLogin = tcp_lib:get_uniq_user_login(StrLogin),
+handle_login_main_data({ok,true}, {ok,true}, {ok, Cnt}, StrLogin, Register_login, #state{socket=S, transport=Transport} = State) ->
+ 	NewLogin = hawk_server_lib:get_uniq_user_login(StrLogin),
 %% 	global:register_name(NewLogin, self()),
 
-	get_data_from_worker({register_pid, self(), Login}),
-	tcp_lib:send_message(mask(<<"ok">>), S),
+	hawk_server_lib:send_message(mask(?OK), S, Transport),
 	
-	{next_state, 'WAIT_USER_MESSAGE', State#state{count_message=Cnt, login=Login, curent_login=NewLogin, 
-												  register_login=binary_to_atom(Register_login, utf8)}}.
+	{next_state, 'WAIT_USER_MESSAGE', State#state{count_message=Cnt, curent_login=NewLogin, register_login=Register_login}}.
 
  %===============================================
-'WAIT_USER_MESSAGE'({data, Bin}, #state{socket=S, login=Login} = State) ->
+'WAIT_USER_MESSAGE'({data, Bin}, #state{socket=S, login=Login, transport=Transport} = State) ->
 	{ok, Data} =  handle_data(Bin),
 	J_data = get_json_data(message, Data),
 
@@ -195,53 +208,55 @@ handle_login_main_data({ok,true}, {ok,true}, {ok, Cnt}, StrLogin, Login, Registe
 	case J_data of
 		false ->
 			disconect_user(Login),
-			gen_tcp:close(S),
+			Transport:close(S),
 			{stop, normal, State};
 		_ ->
 			Cnt = handle_json_message(J_data, State),
 			{next_state, 'WAIT_USER_MESSAGE', State#state{count_message=Cnt}}
 	end;
 
-'WAIT_USER_MESSAGE'({new_message, Bin}, #state{socket=S} = State) ->
+'WAIT_USER_MESSAGE'({new_message, Bin}, #state{socket=S, transport=Transport} = State) ->
 	{ok, Frame} = mask(list_to_binary(?record_to_json(message, Bin))),
-	tcp_lib:send_message({ok, Frame}, S),
+	hawk_server_lib:send_message({ok, Frame}, S, Transport),
 	
+	{next_state, 'WAIT_USER_MESSAGE', State};
+
+'WAIT_USER_MESSAGE'({'EXIT', _Pid, _Reason}, State) ->
 	{next_state, 'WAIT_USER_MESSAGE', State}.
 
-handle_json_message({message, From, {{<<"user">>, To}}, Time, Text}, #state{socket=S, host_name=H_name, curent_login=CurentLogin, count_message=OldCnt} = State) ->
+handle_json_message({message, From, {{<<"user">>, To}}, Time, Text}, #state{socket=S, host_name=H_name, curent_login=CurentLogin, count_message=OldCnt, transport=Transport} = State) ->
 	To_data = #message{from=From, to=To, time=Time, text=Text},
-	Login = tcp_lib:get_login([H_name, "_", To]),
+	Login = hawk_server_lib:get_login([H_name, "_", To]),
 
-	%запрещаем отправку сообщение самому себе
 	if 
 		Login =/= CurentLogin ->
 			case Login of
 				false ->
 					Cnt = OldCnt,
-					tcp_lib:send_message(mask(<<"invalid_login_data">>), S);
+					hawk_server_lib:send_message(mask(?ERROR_INVALID_LOGIN_DATA), S, Transport);
 				_ ->
 					Cnt = handle_user_message(on_output, get_data_from_worker({get_pids, To}), OldCnt, To_data, Login, State)
 			end;
 		true ->
 			Cnt = OldCnt,
-			tcp_lib:send_message(mask(<<"send_message_yourself">>), S)
+			hawk_server_lib:send_message(mask(?ERROR_SEND_MESSAGE_YOURSELF), S, Transport)
 	end,
 	Cnt;
 
-handle_json_message({message, From, {{<<"group">>, To}}, Time, Text}, #state{socket=S, count_message=Cnt, register_login=Login} = State) when is_list(To) ->
+handle_json_message({message, From, {{<<"group">>, To}}, Time, Text}, #state{socket=S, count_message=Cnt, register_login=Login, transport=Transport} = State) when is_list(To) ->
     case ets:lookup(reg_users_data, Login) of
         [] -> 
-        	Reply = <<"user_not_register">>;
+        	Reply = ?ERROR_USER_NOT_REGISTER;
         [{_, MLogin}] ->
             case ets:lookup(main_user_data, MLogin) of
                 [] -> 
-                	Reply = <<"general_error">>;
+                	Reply = ?ERROR_GENERAL_ERROR;
                 [{_, _, Key}] ->
                     action_on_user({send_group_message, Key, Text, To, Time, From}, State),
-                    Reply = <<"ok">>
+                    Reply = ?OK
             end
     end,
-    tcp_lib:send_message(mask(Reply), S),
+    hawk_server_lib:send_message(mask(Reply), S, Transport),
 	Cnt+1;
 
 handle_json_message({message, From, {{<<"user">>, ToUser},{<<"group">>, ToGrp}}, Time, Text},  #state{count_message=Cnt} = State) when is_list(ToGrp) ->
@@ -249,74 +264,70 @@ handle_json_message({message, From, {{<<"user">>, ToUser},{<<"group">>, ToGrp}},
     handle_json_message({message, From, {{<<"group">>, ToGrp}}, Time, Text}, State),
 	Cnt+1;
 
-handle_json_message({message, _From, _To, _Time, _Text}, #state{socket=S, count_message=Cnt}) ->
-	tcp_lib:send_message(mask(<<"invalid_format_data">>), S),
+handle_json_message({message, _From, _To, _Time, _Text}, #state{socket=S, count_message=Cnt, transport=Transport}) ->
+	hawk_server_lib:send_message(mask(?ERROR_INVALID_FORMAT_DATA), S, Transport),
 	Cnt;
 
-handle_json_message(false, #state{socket=S, count_message=Cnt}) ->
-	tcp_lib:send_message(mask(<<"invalid_format_data">>), S),
-	gen_tcp:close(S),
+handle_json_message(false, #state{socket=S, count_message=Cnt, transport=Transport}) ->
+	hawk_server_lib:send_message(mask(?ERROR_INVALID_FORMAT_DATA), S, Transport),
+	Transport:close(S),
 	Cnt.
 
  %===============================================
 
-handle_user_message(Output, [], Cnt, _To_data, _Login, #state{socket=S} = _State) ->
+handle_user_message(Output, [], Cnt, _To_data, _Login, #state{socket=S, transport=Transport} = _State) ->
 	case Output of
 		on_output ->
-			tcp_lib:send_message(mask(<<"user_not_online">>), S);
+			hawk_server_lib:send_message(mask(?ERROR_USER_NOT_ONLINE), S, Transport);
 		_ ->
 			true
 	end,
 	
 	Cnt;
 
-handle_user_message(Output, Pids, _Cnt, To_data, Login, #state{host_name=H_name, socket=S} = _State) ->
+handle_user_message(Output, Pids, _Cnt, To_data, Login, #state{host_name=H_name, socket=S, transport=Transport} = _State) ->
 	lists:foreach(fun(Pid)->
-		%можно было бы поставить гварда, но нужно вычищать мёртвые процессы
-		%поэтому сделаем case
 		if is_pid(Pid) ->
 				case is_process_alive(Pid) of
 					true ->
 						Pid ! {new_message, To_data},
-						Reply = <<"ok">>;
+						Reply = ?OK;
 					false ->
-						Reply = <<"user_not_online">>,
+						Reply = ?ERROR_USER_NOT_ONLINE,
 						get_data_from_worker({unregister_pid, Pid, Login})
 				end;
 			true ->
-				Reply = <<"user_not_online">>,
+				Reply = ?ERROR_USER_NOT_ONLINE,
 				get_data_from_worker({unregister_pid, Pid, Login})
 		end,
 		case Output of
 			on_output ->
-				tcp_lib:send_message(mask(Reply), S);
+				hawk_server_lib:send_message(mask(Reply), S, Transport);
 			_ ->
 				true
 		end
 	end, Pids),
-	{ok, NewCnt} = statistic_server:add_message(H_name),
+	{ok, NewCnt} = hawk_server_statistic:add_message(H_name),
 	NewCnt.
 
  %===============================================
-'POST_ANSWER'({data, Data}, #state{socket=S} = State) ->
+'POST_ANSWER'({data, Data}, #state{socket=S, transport=Transport} = State) ->
 	case re:run(Data, "Transport\: sokets", [global]) of
 		nomatch ->  
-			%используется курл
-			{ok, POST_data} = gen_tcp:recv(S, 0),
-			Post = tcp_lib:get_json_from_post(POST_data);
+			{ok, POST_data} = Transport:recv(S, 0, infinity),
+			Post = hawk_server_lib:get_json_from_post(POST_data);
 		{match, _} ->
-			%используется соединение на сокетах
 			[_Headers, Msg] = re:split(Data, "\r\n\r\n"),
-			Post = tcp_lib:split_json_by_part(binary_to_list(Msg))
+			Post = hawk_server_lib:split_json_by_part(binary_to_list(Msg))
 	end,
-       
+    
 	case Post of
 		false ->
-			Res = <<"unknow data type">>;
+			Res = ?ERROR_UNKNOW_DATA_TYPE;
 		{ok, Qtype, StrJSON} ->
 			JSON = 
 				try 
-					get_json_data(tcp_lib:convert_to_atom(Qtype), list_to_binary(StrJSON)) of
+					get_json_data(hawk_server_lib:convert_to_atom(Qtype), list_to_binary(StrJSON)) of
 						J -> J
 				catch  _A:_B -> 
 					false
@@ -327,14 +338,14 @@ handle_user_message(Output, Pids, _Cnt, To_data, Login, #state{host_name=H_name,
 					action_on_user(JSON, State) of
 					R -> R
 				catch  _C:_D -> 
-					<<"invalid_format_data">>
+					?ERROR_INVALID_FORMAT_DATA
 				end
 	end,
 	
-	Frame = tcp_lib:convert_to_binary(["\r\n", Res]),
+	Frame = hawk_server_lib:convert_to_binary(["\r\n", Res]),
 	
-	tcp_lib:send_message({ok, Frame}, S),
-	gen_tcp:close(S),
+	hawk_server_lib:send_message({ok, Frame}, S, Transport),
+	Transport:close(S),
 
 	{stop, normal, State}.
  
@@ -343,7 +354,7 @@ action_on_user({register_user, Key, Id}, _State) ->
 		true ->
 			get_data_from_worker({register_user, Key, Id});
 		false ->
-			<<"invalid_login_format">>
+			?ERROR_INVALID_LOGIN_FORMAT
 	end;
 
 action_on_user({unregister_user, Key, Id}, _State) ->
@@ -351,7 +362,7 @@ action_on_user({unregister_user, Key, Id}, _State) ->
 		true ->
 			get_data_from_worker({unregister_user, Key, Id});
 		false ->
-			<<"invalid_login_format">>
+			?ERROR_INVALID_LOGIN_FORMAT
 	end;
 
 action_on_user({add_domain, Key, Domain, Login}, _State) ->
@@ -363,12 +374,12 @@ action_on_user({del_domain, Key, Domain, Login}, _State) ->
 action_on_user({add_in_groups, Key, Id, Groups}, _State) when is_list(Groups) ->
 	get_data_from_worker({add_in_groups, Key, Id, Groups});
 action_on_user({add_in_groups, _Key, _Id, _Groups}, _State) ->
-	<<"invalid_group_format">>;
+	?ERROR_INVALID_GROUP_FORMAT;
 
 action_on_user({remove_from_groups, Key, Id, Groups}, _State) when is_list(Groups) ->
 	get_data_from_worker({remove_from_group, Key, Id, Groups});
 action_on_user({remove_from_groups, _Key, _Id, _Groups}, _State) ->
-	<<"invalid_group_format">>;
+	?ERROR_INVALID_GROUP_FORMAT;
 
 action_on_user({send_group_message, Key, Text, Groups, Time, From}, State) when is_list(Groups) ->
 	Res = get_data_from_worker({get_by_group_for_message, Key, Groups}),
@@ -380,16 +391,16 @@ action_on_user({send_group_message, Key, Text, Groups, Time, From}, State) when 
 			handle_user_message(off_output, get_data_from_worker({get_pids, U}), 0, To_data, U, State)
 	end, UnUsers),
 
-	<<"ok">>;
+	?OK;
 
 action_on_user({send_group_message, _Key, _Text, _Groups, _Time, _From}, _State) ->
-	<<"invalid_group_format">>;
+	?ERROR_INVALID_GROUP_FORMAT;
 
 action_on_user({get_by_group, Key, Groups}, _State) when is_list(Groups) ->
-	Res = tcp_lib:flatten(get_data_from_worker({get_by_group, Key, Groups})),
+	Res = hawk_server_lib:flatten(get_data_from_worker({get_by_group, Key, Groups})),
 	?list_records_to_json(users_in_group, Res);
 action_on_user({get_by_group, _Key, _Groups}, _State) ->
-	<<"invalid_group_format">>.	
+	?ERROR_INVALID_GROUP_FORMAT.	
 
 check_login_format(Data) ->
 	case re:run(Data, "^[a-zA-Z0-9]{3,64}$") of
@@ -403,7 +414,6 @@ check_login_format(Data) ->
 get_users_from_groups(Groups, From) ->
 	Fun = fun(H) ->
 		{users_in_group_for_message, _GrpName, Users} = H,
-		%сообщения можно слать только в рамках своих групп
 		case lists:member(From, Users) of
 			true ->
 				Users;
@@ -434,16 +444,14 @@ disconect_user(Login) ->
 	get_data_from_worker({unregister_pid, self(), Login}),
     error_logger:info_msg("~p Client ~p disconnected.\n", [self(), Login]).
 
-terminate(_Reason, _StateName, #state{socket=Socket}) ->
-    (catch gen_tcp:close(Socket)),
+terminate(_Reason, _StateName, #state{socket=Socket, transport=Transport}) ->
+    (catch Transport:close(Socket)),
     ok.
  
 code_change(_OldVsn, StateName, StateData, _Extra) ->
     {ok, StateName, StateData}.
 
-get_awsw_key(Res) ->
-	[H|_] = Res,
-	[Key|_] = H,
+get_awsw_key(Key) ->
 	Key1 = [Key, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"],	
 	<<Mac/binary>> = crypto:hash(sha, list_to_binary(Key1)),
 

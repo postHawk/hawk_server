@@ -1,7 +1,15 @@
 code:add_patha("ebin/").
-code:add_patha("mongodb/ebin/").
-code:add_patha("ehttph/ebin/").
-application:start (erlmongo).
-application:start (tcp_server).
-crypto:start().
-observer:start().
+code:add_patha("deps/bson/ebin/").
+code:add_patha("deps/ranch/ebin/").
+code:add_patha("deps/mongodb/ebin/").
+code:add_patha("deps/jsx/ebin/").
+code:add_patha("deps/gproc/ebin/").
+
+application:start(bson).
+application:start(mongodb).
+application:start(ranch).
+application:start(gproc).
+
+application:start (hawk_server).
+
+%observer:start().

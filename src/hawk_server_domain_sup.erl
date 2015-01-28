@@ -2,7 +2,7 @@
 %% @doc @todo Add description to domain_sup.
 
 
--module(domain_sup).
+-module(hawk_server_domain_sup).
 -behaviour(supervisor).
 -export([start_link/0]).
 -export([init/1]).
@@ -24,8 +24,9 @@
 %% ====================================================================
 
 start_link() ->
-   supervisor:start_link({global, ?MODULE}, ?MODULE, []).
+   supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
+%остановка на доменном супервизоре с потомками
 
 init([Module]) ->
     {ok,

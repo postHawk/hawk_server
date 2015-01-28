@@ -1,14 +1,12 @@
 %% @author Максим
-%% @doc @todo Add description to statistic_server.
+%% @doc @todo Add description to hawk_server_statistic.
 
 
--module(statistic_server).
+-module(hawk_server_statistic).
 -behaviour(gen_server).
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-include("mac.hrl").
 
-%% ====================================================================
-%% API functions
-%% ====================================================================
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 -export([start_link/0, add_message/1, get_count_message/1, init_message/1]).
 
 
@@ -18,29 +16,13 @@
 %% ====================================================================
 -record(state, {count_all_message, ets_table}).
 
--record(message_log, {domain, cnt_mess, time}).
-
--record(users, {
-    login,
-    password,
-    email,
-    activation_code,
-    key,
-    domain
-}).
-
 %% init/1
 init([]) ->
 	TableId = ets:new(hosts_data, [ordered_set, private]),
-	mongodb:singleServer(hawk_statistics),
-	mongodb:connect(hawk_statistics),
-	
-	define_records(),
-	
     {ok, #state{count_all_message=0, ets_table=TableId}}.
 
 start_link()  ->
-    gen_server:start_link({global, ?MODULE}, ?MODULE, [], []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 
 %% handle_call/3
@@ -50,8 +32,14 @@ handle_call({get_cnt_for_host, Host}, _From, #state{ets_table=TableId} = State) 
     {reply, Reply, State};
 
 handle_call({new_message_from_host, Host}, _From, #state{count_all_message=Cnt_mess, ets_table=TableId} = State) ->
-	New_cnt = Cnt_mess + 1,
-	ets:insert(TableId, {Host, New_cnt}),
+	New_cnt = case ets:lookup(TableId, Host) of
+		[] -> 
+			ets:insert(TableId, {Host, 1}),
+			1;
+		[{Host, OldCnt}] -> 
+			ets:insert(TableId, {Host, OldCnt+1}),
+			(OldCnt+1)
+	end,
 	
 	{{Year,Month,Day},{Hour,_,_}} = erlang:localtime(),
 	
@@ -78,10 +66,18 @@ handle_call({new_message_from_host, Host}, _From, #state{count_all_message=Cnt_m
 
 	Time = list_to_binary([integer_to_list(Year), EMonth, EDay, EHour]),
 
-	Mong = mongoapi:new(hawk_statistics,<<"hawk">>),
-	Mong:update([{#message_log.domain, Host}, {#message_log.time, Time}], #message_log{cnt_mess = New_cnt, domain = Host, time = Time}, [upsert]),
+	{ok, Connection} = mongo:connect (?DB_NAME),
+	
+	Command = {'$set', {
+	    domain, hawk_server_lib:convert_to_binary({conv, Host}),
+	    time, Time,
+	    cnt_mess, New_cnt
+	}},
+	mongo:update(Connection, <<"message_log">>, {domain, Host, time, Time}, Command, true),
+	mc_worker:disconnect(Connection),
+
 	Reply = {ok, New_cnt},
-	New_state = State#state{count_all_message=New_cnt},
+	New_state = State#state{count_all_message=(Cnt_mess+1)},
 	{reply, Reply, New_state};
 
 handle_call({init_message_for_host, Host, Cnt, Key}, _From, #state{ets_table=TableId} = State) ->
@@ -90,60 +86,54 @@ handle_call({init_message_for_host, Host, Cnt, Key}, _From, #state{ets_table=Tab
 	{reply, Reply, State}.
 
 %% handle_cast/2
-handle_cast(_Msg, State) ->
-	
-    {noreply, State}.
-
+handle_cast(_Msg, State) -> {noreply, State}.
 
 %% handle_info/2
-handle_info(_Info, State) ->
-    {noreply, State}.
-
+handle_info(_Info, State) -> {noreply, State}.
 
 %% terminate/2
-terminate(_Reason, _State) ->
-    ok.
-
+terminate(_Reason, _State) -> ok.
 
 %% code_change/3
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 
 %% ====================================================================
 %% Internal functions
 %% ====================================================================
 add_message(Host) ->
-	gen_server:call({global, ?MODULE}, {new_message_from_host, Host}).
+	gen_server:call(?MODULE, {new_message_from_host, Host}).
 
 get_count_message(Host) ->
-	gen_server:call({global, ?MODULE}, {get_cnt_for_host, Host}).
+	gen_server:call(?MODULE, {get_cnt_for_host, Host}).
 
 init_message(Host) ->
-	Mong = mongoapi:new(hawk_statistics,<<"hawk">>),
-	define_records(),
 	B_host = list_to_binary(Host),
+	
+	User = ?get_user_by_domain(B_host),
 
-	{ok, User} = Mong:findOne(#users{domain = B_host}, [#users.key]),
 	case User of
-		[] ->
+		{ok, false} ->
 			{ok, false};
 		_ ->
-			{ok, Rec} = Mong:findOne(#message_log{domain = B_host}, [#message_log.cnt_mess]),
+			{ok, Connection} = mongo:connect (?DB_NAME),
 			
-			case Rec of
-				[] ->
-					Cnt = 0;
-				_ ->
-					#message_log{cnt_mess = Cnt} = Rec
+			{true,{result,Res}} = mongo:command(Connection, {aggregate, <<"message_log">>, pipeline, [
+					  {'$match', {domain, B_host}},
+					  {'$project', {cnt_mess, true, domain, true}},
+					  {'$group', {
+						   '_id', <<"$domain">>, 
+						   'summ', {'$sum', <<"$cnt_mess">>}
+			  			}
+					  }
+				]}),
+			
+			Sum = case Res of
+				[{'_id', B_host, summ, Cnt}] -> Cnt;
+				[] -> 0
 			end,
 			
-			gen_server:cast(?MODULE, {init_message_for_host, Host, Cnt}),
-			{ok, Cnt}
-	end.
-
-define_records() ->
-	mongoapi:recinfo(#message_log{}, record_info(fields, message_log)),
-	mongoapi:recinfo(#users{}, record_info(fields, users)).
-	
+			gen_server:cast(?MODULE, {init_message_for_host, Host, Sum}),
+			{ok, Sum}
+	end.	
 

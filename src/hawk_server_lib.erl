@@ -191,3 +191,5 @@ format_headers([H|T] = _Headers, Acc) ->
 	[Name, Val] = binary:split(H, <<": ">>),
 	format_headers(T, [{Name, Val}|Acc]).
 	
+list_is_empty(List) ->
+	lists:all(fun(L) -> L==[] end, List).

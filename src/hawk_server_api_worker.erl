@@ -38,16 +38,15 @@ init([]) ->
 
 handle_cast({From, {register_user, Key, Id}}, State) ->
     {ok, User} = get_user_by_key(Key),
-
     case User of
         false ->
             Reply = false;
         _ ->
 			{Login} = bson:lookup(login, User),
 			
-            case ets:lookup(reg_users_data, Id) of
+            case dets:lookup(reg_users_data, Id) of
                 [] ->
-                    ets:insert(reg_users_data, {Id, Login});
+                    dets:insert(reg_users_data, {Id, Login});
                 _ ->
                     true
             end,
@@ -64,7 +63,7 @@ handle_cast({From, {unregister_user, Key, Id}}, State) ->
         false ->
             Reply = false;
         _ ->
-            ets:delete(reg_users_data, Id),
+            dets:delete(reg_users_data, Id),
             Reply = ?OK
     end,
 	
@@ -72,11 +71,11 @@ handle_cast({From, {unregister_user, Key, Id}}, State) ->
     {stop, normal, State};
 
 handle_cast({From, {check_user_by_domain, Id, Domain}}, State) ->
-    case ets:lookup(reg_users_data, Id) of
+    case dets:lookup(reg_users_data, Id) of
         [] ->
             Reply = {ok, false, no_id};
         [{_, Login}] ->
-            case ets:lookup(main_user_data, Login) of
+            case dets:lookup(main_user_data, Login) of
                 [] -> 
                     Reply = {ok, false, no_login};
                 [{_, Hosts, _}] ->
@@ -97,13 +96,13 @@ handle_cast({From, {add_domain, Key, Domain, Login}}, State) ->
     Kur_key = get_client_api_key(),
     if 
         Key == Kur_key ->
-            case ets:lookup(main_user_data, Login) of
+            case dets:lookup(main_user_data, Login) of
                 [] -> 
                     true;
                 [{_, Hosts, Ukey}] ->
-                    ets:insert(main_user_data, {Login, [Domain|Hosts], Ukey})
+                    dets:insert(main_user_data, {Login, [Domain|Hosts], Ukey})
             end,
-            Res = ok;
+            Res = ?OK;
         true ->
             Res = false
     end,
@@ -115,14 +114,14 @@ handle_cast({From, {del_domain, Key, Domain, Login}}, State) ->
     Kur_key = get_client_api_key(),
     if 
         Key == Kur_key ->
-            case ets:lookup(main_user_data, Login) of
+            case dets:lookup(main_user_data, Login) of
                 [] -> 
                     true;
                 [{_, Hosts, Ukey}] ->
                     NewList = lists:delete(Domain, Hosts),
-                    ets:insert(main_user_data, {Login, NewList, Ukey})
+                    dets:insert(main_user_data, {Login, NewList, Ukey})
             end,
-            Res = ok;
+            Res = ?OK;
         true ->
             Res = false
     end,
@@ -134,107 +133,153 @@ handle_cast({From, {get_pids, Login}}, State) ->
     gen_server:reply(From, get_users_pids(Login)),
     {stop, normal, State};
 
-handle_cast({From, {add_in_groups, Key, Login, Groups}}, State) ->
+handle_cast({From, {add_in_groups, Key, Login, Groups, Domains}}, State) ->
     {ok, User} = get_user_by_key(Key),
     case User of
         [] ->
             Reply = ?ERROR_INVALID_API_KEY;
         _ ->
-            case ets:lookup(reg_users_data, Login) of
-                [] ->
-                    Reply = ?ERROR_USER_NOT_REGISTER;
-                _ ->
-                    add_user_to_group(bson:lookup(login, User), Login, Groups) ,
-                    Reply = ?OK
-            end
+			case check_user_domains(bson:lookup(domain, User), Domains) of
+				true ->
+		            case dets:lookup(reg_users_data, Login) of
+		                [] ->
+		                    Reply = ?ERROR_USER_NOT_REGISTER;
+		                _ ->
+		                    add_user_to_group(Login, Groups, Domains) ,
+		                    Reply = ?OK
+		            end;
+				false ->
+					 Reply = ?ERROR_DOMAIN_NOT_REGISTER
+			end
     end,
     
     gen_server:reply(From, Reply),
     {stop, normal, State};
 
-handle_cast({From, {remove_from_group, Key, Login, Groups}}, State) ->
+handle_cast({From, {remove_from_group, Key, Login, Groups, Domains}}, State) ->
     {ok, User} = get_user_by_key(Key),
     case User of
         [] ->
             Reply = ?ERROR_INVALID_API_KEY;
         _ ->
-            case ets:lookup(reg_users_data, Login) of
-                [] ->
-                    Reply = ?ERROR_USER_NOT_REGISTER;
-                _ ->
-                    remove_user_from_group(bson:lookup(login, User), Login, Groups),
-                    Reply = ?OK
-            end
+			case check_user_domains(bson:lookup(domain, User), Domains) of
+				true ->
+		            case dets:lookup(reg_users_data, Login) of
+		                [] ->
+		                    Reply = ?ERROR_USER_NOT_REGISTER;
+		                _ ->
+		                    remove_user_from_group(Login, Groups, Domains),
+		                    Reply = ?OK
+		            end;
+				false ->
+					 Reply = ?ERROR_DOMAIN_NOT_REGISTER
+			end
     end,
     
     gen_server:reply(From, Reply),
     {stop, normal, State};
 
-handle_cast({From, {get_by_group, Key, Groups}}, State) ->
+handle_cast({From, {get_by_group, Key, Groups, Domains}}, State) ->
     {ok, User} = get_user_by_key(Key),
     case User of
         [] ->
             Reply = ?ERROR_INVALID_API_KEY;
         _ ->
-			ULogin = bson:lookup(login, User),
-            Reply = get_users_by_groups(Groups, ULogin)
+            Reply = get_users_by_groups(Groups, Domains)
     end,
     
     gen_server:reply(From, Reply),
     {stop, normal, State};
 
-handle_cast({From, {get_by_group_for_message, Key, Groups}}, State) ->
+handle_cast({From, {check_user_domains, Domains, Login}}, State) ->
+    {ok, User} = ?get_user_by_login(Login),
+    case User of
+        [] ->
+            Reply = ?ERROR_INVALID_LOGIN_DATA;
+        _ ->
+            Reply = check_user_domains(bson:lookup(domain, User), Domains)
+    end,
+    
+    gen_server:reply(From, Reply),
+    {stop, normal, State};
+
+handle_cast({From, {get_user_groups, Key, Login, Domains}}, State) ->
     {ok, User} = get_user_by_key(Key),
     case User of
         [] ->
             Reply = ?ERROR_INVALID_API_KEY;
         _ ->
-			ULogin = bson:lookup(login, User),
-            Reply = get_users_by_groups_for_message(Groups, ULogin)
+            Reply = get_user_groups(Domains, Login)
     end,
-
+    
     gen_server:reply(From, Reply),
     {stop, normal, State}.
 
-add_user_to_group(MLogin, Login, Groups) ->
+%======================================================================
+add_user_to_group(Login, Groups, Domains) ->
 	lists:foreach(fun(Gr)->
-        case ets:lookup(groups_to_user, {Gr, MLogin}) of
-            [] ->
-                ets:insert(groups_to_user, {{Gr, MLogin}, [Login]});
-            [{_, Users}] ->
-                case lists:member(Login, Users) of
-                    false ->
-                        ets:insert(groups_to_user, {{Gr, MLogin}, [Login|Users]});
-                    true ->
-                        true
-                end
-        end
+		lists:foreach(fun(Dom)->
+	        case dets:lookup(groups_to_user, {Gr, Dom}) of
+	            [] ->
+	                dets:insert(groups_to_user, {{Gr, Dom}, [Login]});
+	            [{_, Users}] ->
+	                case lists:member(Login, Users) of
+	                    false ->
+	                        dets:insert(groups_to_user, {{Gr, Dom}, [Login|Users]});
+	                    true ->
+	                        true
+	                end
+	        end,
+			add_group_to_user(Login, Dom, Gr)
+		end, Domains)
     end, Groups).
 
-remove_user_from_group(MLogin, Login, Groups) ->
+add_group_to_user(Login, Dom, Gr) ->
+	case dets:lookup(user_to_groups, {Login, Dom}) of
+		[] -> dets:insert(user_to_groups, {{Login, Dom}, [Gr]});
+		[{_, Grps}] -> 
+			case lists:member(Gr, Grps) of
+                false ->
+                    dets:insert(user_to_groups, {{Login, Dom}, [Gr|Grps]});
+                true ->
+                    true
+            end
+	end.
+
+remove_user_from_group(Login, Groups, Domains) ->
 	lists:foreach(fun(Gr)->
-        case ets:lookup(groups_to_user, {Gr, MLogin}) of
-            [] ->
-               true;
-            [{_, Users}] ->
-                NewUsers = lists:delete(Login, Users),
-                ets:insert(groups_to_user, {{Gr, MLogin}, NewUsers})
-        end
+		lists:foreach(fun(Dom)->
+	        case dets:lookup(groups_to_user, {Gr, Dom}) of
+	            [] ->
+	            	true;
+	            [{_, Users}] ->
+	            	dets:insert(groups_to_user, {{Gr, Dom}, lists:delete(Login, Users)})
+	        end,
+			remove_group_to_user(Login, Dom, Gr)		  
+		end, Domains)
     end, Groups).
 
+remove_group_to_user(Login, Dom, Gr) ->
+	case dets:lookup(user_to_groups, {Login, Dom}) of
+		[] -> true;
+		[{_, Grps}] -> dets:insert(user_to_groups, {{Login, Dom}, lists:delete(Gr, Grps)})
+	end.
+
+%@todo http://posthawk.myjetbrains.com/youtrack/issue/posthawk-6
 get_users_pids(Logins) when is_list(Logins) ->
     Fun = fun(Login) ->
-	    case ets:lookup(reg_users_data, Login) of
-	        [] 			  -> [];
+	    case dets:lookup(reg_users_data, Login) of
+	        [] -> 
+				[];
 	        [{_, MLogin}] ->
-	            case ets:lookup(main_user_data, MLogin) of
+	            case dets:lookup(main_user_data, MLogin) of
 	                [] 				-> [];
 	                [{_, Hosts, _}] -> get_pids_by_hosts(Hosts, Login)
 	            end
 	    end
 	end,
 	lists:flatten(lists:map(Fun, Logins));
-
+ 
 get_users_pids(Login)  ->
     get_users_pids([Login]).
 
@@ -247,27 +292,30 @@ get_pids_by_hosts(Hosts, Login) ->
 		end,
     lists:flatten(lists:map(Fun, Hosts)).
 
-get_users_by_groups(Groups, ULogin) ->
-    Fun = fun(Gr) -> 
-		    case ets:lookup(groups_to_user, {Gr, ULogin}) of
+get_users_by_groups(Groups, Domains) ->
+	Fun = fun(Gr) -> 
+			get_users_in_group(Gr, Domains)
+		end,
+    List = lists:map(Fun, Groups),
+	
+	case hawk_server_lib:list_is_empty(List) of
+		true -> [];
+		false -> List
+	end.
+
+get_users_in_group(Gr, Domains) ->
+	FunD = fun(Dom) ->
+			case dets:lookup(groups_to_user, {Gr, Dom}) of
 		        [] ->
 		           [];
 		        [{_, Users}] ->
 					get_users_records(Users, Gr)
-		    end
+		    end		   
 		end,
-    lists:map(Fun, Groups).
-
-get_users_by_groups_for_message(Groups, ULogin) ->
-   Fun = fun(Gr) -> 
-		    case ets:lookup(groups_to_user, {Gr, ULogin}) of
-		        [] ->
-		            [];
-		        [{_, Users}] ->
-		           [#users_in_group_for_message{group=Gr, users=Users}]
-			end
-		end,
-    lists:flatten(lists:map(Fun, Groups)).
+	case lists:map(FunD, Domains) of 
+		[[]] -> [];
+		R -> lists:flatmap(fun(X)->X end, R)
+	end.
 
 get_users_records(Users, Gr) ->
 	Fun = fun(U) -> 
@@ -283,6 +331,24 @@ get_users_records(Users, Gr) ->
 			true
 	end.
 
+check_user_domains({UDomains}, Domains) when is_list(Domains)->
+	case string:str(lists:sort(UDomains), lists:sort(Domains)) of
+		0 -> false;
+		_ -> true
+	end;
+
+check_user_domains(_UDomains, _Domains) ->
+	false.
+
+get_user_groups(Domains, Login) ->
+	Fun = fun(Host) -> 
+		    case dets:lookup(user_to_groups, {Login, Host}) of
+				[] -> [];
+				[{_, Grps}] -> Grps
+			end
+		end,
+    lists:map(Fun, Domains).
+	
 handle_info(_Data, State) ->
 	{stop, normal, State}.
 

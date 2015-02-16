@@ -37,17 +37,17 @@ handle_info({tcp, Socket, Data}, State=#state{socket=Socket, transport=Transport
  	
 	{ok, {http_request,Method,{abs_path, _URL},_}, H} = erlang:decode_packet(http, Data, []),
 	[Headers, {body, _Body}] = hawk_server_lib:parse_header(H),
-	
 	case set_client({Method, Headers}) of
 		{ok, false} -> 
 			Transport:send(Socket, ?ERROR_DOMAIN_NOT_REGISTER);
 		{ok, Client, Host} ->
+			Transport:setopts(Socket, [{active, once}]),
 			Transport:controlling_process(Socket, Client),
 			gen_fsm:send_event(Client, {socket_ready, Socket, binary_to_list(Host), Transport}),
-			gen_fsm:send_event(Client, {data, Data})
+ 			gen_fsm:send_event(Client, {data, Data})
 	end,
 
-	{noreply, State, ?TIMEOUT};
+	{stop, normal, State};
 
 handle_info({tcp_closed, _Socket}, State) ->
 	{stop, normal, State};
@@ -91,7 +91,7 @@ set_client({'GET', Headers}) ->
 	case User of
 		{ok, false} ->
 			{ok, false};
-		{ok, {U}} ->
+		{ok, U} ->
 			{Login} = bson:lookup (login, U),
 			{U_hosts} = bson:lookup(domain, U),
 			{ApiKey} = bson:lookup(key, U),
@@ -99,7 +99,7 @@ set_client({'GET', Headers}) ->
 			{ok, Sup} = get_supervisor_by_name(Login),
 			{ok, Client} = supervisor:start_child(Sup, [Login]),
 			
-			ets:insert(main_user_data, {Login, U_hosts, ApiKey}),
+			dets:insert(main_user_data, {Login, U_hosts, ApiKey}),
 			
 			{ok, Client, Host}
 	end;

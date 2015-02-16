@@ -6,3 +6,5 @@ push
 ttb_last_config
 *.dump
 deps/
+data/*
+!data/.gitkeep

@@ -29,47 +29,34 @@
 -endif.
 
 -define(get_user_by_domain(Domain), 
-	fun(Domain) ->
-		{ok, Connection} = mongo:connect (?DB_NAME),
-		Res = mongo:find_one(Connection, <<"users">>, {domain, Domain}),
-		mc_worker:disconnect(Connection),
-		
-		case Res of
-			{} ->
-				{ok, false};
-			_ ->
-				{ok, Res}
-		end
+	fun(D) ->
+		?get_user_from_mongo({domain, D})
 	end(Domain)
 ).
 
 -define(get_user_by_key(Key), 
-	fun(Key) ->
-		{ok, Connection} = mongo:connect (?DB_NAME),
-		Res = mongo:find_one(Connection, <<"users">>, {key, Key}),
-		mc_worker:disconnect(Connection),
-		
-		case Res of
-			{} ->
-				{ok, false};
-			_ ->
-				{U} = Res,
-				{ok, U}
-		end
+	fun(K) ->
+		?get_user_from_mongo({key, K})
 	end(Key)
 ).
 
 -define(get_user_by_login(Login), 
-	fun(Login) ->
+	fun(L) ->
+		?get_user_from_mongo({login, L})
+	end(Login)
+).
+
+-define(get_user_from_mongo(Criteria), 
+	fun(Cr) ->
 		{ok, Connection} = mongo:connect (?DB_NAME),
-		Res = mongo:find_one(Connection, <<"users">>, {login, Login}),
+		Res = mongo:find_one(Connection, <<"users">>, Cr),
 		mc_worker:disconnect(Connection),
 		
 		case Res of
 			{} ->
 				{ok, false};
-			_ ->
-				{ok, Res}
+			{U} ->
+				{ok, U}
 		end
-	end(Login)
+	end(Criteria)
 ).

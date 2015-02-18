@@ -129,8 +129,8 @@ handle_cast({From, {del_domain, Key, Domain, Login}}, State) ->
     gen_server:reply(From, Res),
     {stop, normal, State};
 
-handle_cast({From, {get_pids, Login}}, State) ->
-    gen_server:reply(From, get_users_pids(Login)),
+handle_cast({From, {get_pids, Login, Domains}}, State) ->
+    gen_server:reply(From, get_users_pids(Login, Domains)),
     {stop, normal, State};
 
 handle_cast({From, {add_in_groups, Key, Login, Groups, Domains}}, State) ->
@@ -265,23 +265,17 @@ remove_group_to_user(Login, Dom, Gr) ->
 		[{_, Grps}] -> dets:insert(user_to_groups, {{Login, Dom}, lists:delete(Gr, Grps)})
 	end.
 
-%@todo http://posthawk.myjetbrains.com/youtrack/issue/posthawk-6
-get_users_pids(Logins) when is_list(Logins) ->
-    Fun = fun(Login) ->
+get_users_pids(Logins, Domains) when is_list(Logins), is_list(Domains) ->
+	Fun = fun(Login) ->
 	    case dets:lookup(reg_users_data, Login) of
-	        [] -> 
-				[];
-	        [{_, MLogin}] ->
-	            case dets:lookup(main_user_data, MLogin) of
-	                [] 				-> [];
-	                [{_, Hosts, _}] -> get_pids_by_hosts(Hosts, Login)
-	            end
+	        [] -> [];
+             _ -> get_pids_by_hosts(Domains, Login)
 	    end
 	end,
 	lists:flatten(lists:map(Fun, Logins));
  
-get_users_pids(Login)  ->
-    get_users_pids([Login]).
+get_users_pids(Login, Domain)  ->
+    get_users_pids([Login], [Domain]).
 
 get_pids_by_hosts(Hosts, Login) ->
 	Fun = fun(Host) -> 
@@ -309,7 +303,7 @@ get_users_in_group(Gr, Domains) ->
 		        [] ->
 		           [];
 		        [{_, Users}] ->
-					get_users_records(Users, Gr)
+					get_users_records(Users, Gr, Dom)
 		    end		   
 		end,
 	case lists:map(FunD, Domains) of 
@@ -317,14 +311,14 @@ get_users_in_group(Gr, Domains) ->
 		R -> lists:flatmap(fun(X)->X end, R)
 	end.
 
-get_users_records(Users, Gr) ->
+get_users_records(Users, Gr, Dom) ->
 	Fun = fun(U) -> 
-			[{group, Gr}, {user, U}, {online, is_user_online(U)}]
+			[{group, Gr}, {user, U}, {online, is_user_online(U, Dom)}]
 		end,
     lists:map(Fun, Users).
 
- is_user_online(U) ->
-	case get_users_pids(U) of
+ is_user_online(U, Dom) ->
+	case get_users_pids(U, Dom) of
 		[] ->
 			false;
 		_ ->

@@ -157,16 +157,17 @@ handle_login_main_data({ok,true}, Register_login, #state{socket=S, transport=Tra
 
 handle_json_message({message, {ToUser, undefined}, J_data}, 
 					#state{socket=S, host_name=H_name, curent_login=CurentLogin, transport=Transport} = State) ->
+	Domains = proplists:get_value(<<"domains">>, J_data),
 	if 
 		{H_name, ToUser} =/= CurentLogin ->
- 			handle_user_message(on_output, get_data_from_worker({get_pids, ToUser}), J_data, State);
+ 			handle_user_message(on_output, get_data_from_worker({get_pids, [ToUser], Domains}), J_data, State);
 		true ->
 			hawk_server_lib:send_message(mask(?ERROR_SEND_MESSAGE_YOURSELF), S, Transport)
 	end;
 
 handle_json_message({message, {undefined, ToGrp}, J_data}, 
 					#state{socket=S, register_login=Login, transport=Transport} = State) when is_list(ToGrp) ->
-    case dets:lookup(reg_users_data, Login) of
+	case dets:lookup(reg_users_data, Login) of
         [] -> 
         	Reply = ?ERROR_USER_NOT_REGISTER;
         [{_, MLogin}] ->
@@ -352,7 +353,7 @@ action_on_user({"send_group_message", J_data}, #state{parent=Parent} = State, Ou
 					if 
 						O ->
 							To_data = [{from, From}, {to_user, U}, {to_group, G}, {time, Time}, {text, Text}],
-							handle_user_message(Output, get_data_from_worker({get_pids, U}), To_data, State);
+							handle_user_message(Output, get_data_from_worker({get_pids, [U], Domains}), To_data, State);
 						true -> true
 					end
 				end, Records)

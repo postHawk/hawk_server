@@ -17,8 +17,14 @@
 -define(ERROR_USER_NOT_ONLINE, <<"user_not_online">>).
 -define(ERROR_UNKNOW_DATA_TYPE, <<"unknow_data_type">>).
 -define(ERROR_INVALID_GROUP_FORMAT, <<"invalid_group_format">>).
+-define(ERROR_ACCESS_DENIED_TO_GROUP, <<"access_denied_to_group">>).
 
 -define(OK, <<"ok">>).
+
+-define(GROUP_ACCESS_PUBLIC, <<"public">>).
+-define(GROUP_ACCESS_PRIVATE, <<"private">>).
+-define(GROUP_ACCESS_ALL, <<"all">>).
+-define(DEFAULT_GROUP_ACCESS, ?GROUP_ACCESS_PUBLIC).
 
 %% -define(HOST, <<"127.0.0.1">>).
 %% -define(PORT, 27017).

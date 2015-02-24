@@ -139,6 +139,15 @@ send_message({ok, Frame}, S, T) ->
 			ok = T:send(S, Frame)
 	end.
 
+send_message_to_pid(Pid, J_data) ->
+	case is_process_alive(Pid) of
+		true ->
+			Pid ! {new_message, J_data},
+			?OK;
+		false ->
+			?ERROR_USER_NOT_ONLINE
+	end.
+
 pid_2_name(Pid) ->
     case ets:lookup(global_pid_names, Pid) of
 		[{Pid, Name}] -> 

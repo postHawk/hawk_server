@@ -46,7 +46,7 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
     % Now we own the socket
     {next_state, 'WAIT_FOR_DATA', State#state{
 		  socket=Socket, 
-		  host_name=H_name, 
+		  host_name=list_to_binary(H_name), 
 		  transport=Transport
 	 	}, 
 	 ?TIMEOUT};
@@ -91,7 +91,7 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 	handle_login_format(check_login_format(Data), Data, State).
 
 handle_login_format(true, User_id, #state{host_name=H_name} = State) ->
-	Ch_res = get_data_from_worker({check_user_by_domain, User_id, list_to_binary(lists:flatten(H_name))}),
+	Ch_res = get_data_from_worker({check_user_by_domain, User_id, H_name}),
 	handle_login_main_data(Ch_res, User_id, State);
 
 handle_login_format(false, _User_id, #state{socket=S, transport=Transport} = State) ->
@@ -117,7 +117,7 @@ handle_login_main_data({ok,false, Reason}, _, #state{socket=S, transport=Transpo
 	{stop, normal, State};
 
 handle_login_main_data({ok,true}, Register_login, #state{socket=S, transport=Transport, host_name=H_name} = State) ->
-	RegLogin = {list_to_binary(H_name), Register_login},
+	RegLogin = {H_name, Register_login},
 	gproc:reg({p,l,RegLogin}, undefined),
 	
 	hawk_server_lib:send_message(mask(?OK), S, Transport),
@@ -126,20 +126,26 @@ handle_login_main_data({ok,true}, Register_login, #state{socket=S, transport=Tra
 %===============================================
 'WAIT_USER_MESSAGE'({data, Bin}, #state{socket=S, transport=Transport} = State) ->
 	{ok, Data} =  handle_data(Bin),
-	
 	case jsx:is_json(Data) of
 		true ->
 			J_data = jsx:decode(Data),
+			
 			case J_data of
 				false ->
 					Transport:close(S),
 					{stop, normal, State};
 				_ ->
-					To = proplists:get_value(<<"to">>, J_data),
-					Gr = proplists:get_value(<<"group">>, To),
-					U = proplists:get_value(<<"user">>, To),
+					case proplists:get_value(<<"to">>, J_data) of
+						undefined -> 
+							Gr = undefined,
+							U = undefined;
+						To ->
+							Gr = proplists:get_value(<<"group">>, To),
+							U = proplists:get_value(<<"user">>, To)
+					end,
 
-					handle_json_message({message, {U, Gr}, J_data}, State),
+					Action = proplists:get_value(<<"action">>, J_data),
+					handle_json_message({Action, {U, Gr}, J_data}, State),
 					{next_state, 'WAIT_USER_MESSAGE', State}
 			end;
 		false ->
@@ -155,9 +161,10 @@ handle_login_main_data({ok,true}, Register_login, #state{socket=S, transport=Tra
 'WAIT_USER_MESSAGE'({'EXIT', _Pid, _Reason}, State) ->
 	{next_state, 'WAIT_USER_MESSAGE', State}.
 
-handle_json_message({message, {ToUser, undefined}, J_data}, 
+handle_json_message({<<"send_message">>, {ToUser, undefined}, J_data}, 
 					#state{socket=S, host_name=H_name, curent_login=CurentLogin, transport=Transport} = State) ->
 	Domains = proplists:get_value(<<"domains">>, J_data),
+	
 	if 
 		{H_name, ToUser} =/= CurentLogin ->
  			handle_user_message(on_output, get_data_from_worker({get_pids, [ToUser], Domains}), J_data, State);
@@ -165,28 +172,98 @@ handle_json_message({message, {ToUser, undefined}, J_data},
 			hawk_server_lib:send_message(mask(?ERROR_SEND_MESSAGE_YOURSELF), S, Transport)
 	end;
 
-handle_json_message({message, {undefined, ToGrp}, J_data}, 
+handle_json_message({<<"send_message">>, {undefined, ToGrp}, J_data}, 
 					#state{socket=S, register_login=Login, transport=Transport} = State) when is_list(ToGrp) ->
-	case dets:lookup(reg_users_data, Login) of
+	Reply = case dets:lookup(reg_users_data, Login) of
         [] -> 
-        	Reply = ?ERROR_USER_NOT_REGISTER;
+        	?ERROR_USER_NOT_REGISTER;
         [{_, MLogin}] ->
             case dets:lookup(main_user_data, MLogin) of
                 [] -> 
-                	Reply = ?ERROR_GENERAL_ERROR;
-                [_] ->
-                    action_on_user({"send_group_message", J_data}, State, on_output),
-                    Reply = ?OK
+                	?ERROR_GENERAL_ERROR;
+                _ ->
+                    api_action({"send_group_message", J_data}, State, on_output),
+                    ?OK
             end
     end,
     hawk_server_lib:send_message(mask(Reply), S, Transport);
 
-handle_json_message({message, {ToUser, ToGrp}, J_data},  State) when is_list(ToGrp) ->
-    handle_json_message({message, {ToUser, undefined}, J_data}, State) ,
-    handle_json_message({message, {undefined, ToGrp}, J_data}, State);
+handle_json_message({<<"send_message">>, {ToUser, ToGrp}, J_data},  State) when is_list(ToGrp) ->
+    handle_json_message({<<"send_message">>, {ToUser, undefined}, J_data}, State) ,
+    handle_json_message({<<"send_message">>, {undefined, ToGrp}, J_data}, State);
 
-handle_json_message({message, _To, _J_data}, #state{socket=S, transport=Transport}) ->
-	hawk_server_lib:send_message(mask(?ERROR_INVALID_FORMAT_DATA), S, Transport).
+handle_json_message({<<"send_message">>, _To, _J_data}, #state{socket=S, transport=Transport}) ->
+	hawk_server_lib:send_message(mask(?ERROR_INVALID_FORMAT_DATA), S, Transport);
+
+handle_json_message({<<"get_group_list">>, _To, J_data}, #state{socket=S, transport=Transport}) ->
+	Login = proplists:get_value(<<"from">>, J_data),
+	Reply = case dets:lookup(reg_users_data, Login) of
+        [] -> 
+        	?ERROR_USER_NOT_REGISTER;
+        [{_, MLogin}] ->
+            case dets:lookup(main_user_data, MLogin) of
+                [] -> 
+                	?ERROR_GENERAL_ERROR;
+                [{_Login, _Domains, Key}] ->
+                    Res = get_data_from_worker({
+					   get_group_list, 
+					   Key, 
+					   ?GROUP_ACCESS_PUBLIC, 
+					   proplists:get_value(<<"domains">>, J_data)
+					  }),
+					jsx:encode(Res)
+            end
+    end,
+	
+	hawk_server_lib:send_message(mask(Reply), S, Transport);
+
+handle_json_message({<<"add_in_groups">>, _To, J_data}, #state{socket=S, transport=Transport}) ->
+	Login = proplists:get_value(<<"id">>, J_data),
+	Reply = case dets:lookup(reg_users_data, Login) of
+        [] -> 
+        	?ERROR_USER_NOT_REGISTER;
+        [{_, MLogin}] ->
+            case dets:lookup(main_user_data, MLogin) of
+                [] -> 
+                	?ERROR_GENERAL_ERROR;
+                [{_Login, _Domains, Key}] ->
+                    Res = get_data_from_worker({
+					   add_in_groups, 
+					   Key, 
+					   Login, 
+					   proplists:get_value(<<"groups">>, J_data),
+					   proplists:get_value(<<"domains">>, J_data),
+					   ?GROUP_ACCESS_PUBLIC
+					  }),
+					jsx:encode(Res)
+            end
+    end,
+	
+	hawk_server_lib:send_message(mask(Reply), S, Transport);
+
+handle_json_message({<<"remove_from_groups">>, _To, J_data}, #state{socket=S, transport=Transport}) ->
+	Login = proplists:get_value(<<"id">>, J_data),
+	Reply = case dets:lookup(reg_users_data, Login) of
+        [] -> 
+        	?ERROR_USER_NOT_REGISTER;
+        [{_, MLogin}] ->
+            case dets:lookup(main_user_data, MLogin) of
+                [] -> 
+                	?ERROR_GENERAL_ERROR;
+                [{_Login, _Domains, Key}] ->
+                    Res = get_data_from_worker({
+					   remove_from_group, 
+					   Key, 
+					   Login, 
+					   proplists:get_value(<<"groups">>, J_data),
+					   proplists:get_value(<<"domains">>, J_data),
+					   ?GROUP_ACCESS_PUBLIC
+					  }),
+					jsx:encode(Res)
+            end
+    end,
+	
+	hawk_server_lib:send_message(mask(Reply), S, Transport).
 
  %===============================================
 
@@ -202,14 +279,7 @@ handle_user_message(Output, [], _To_data, #state{socket=S, transport=Transport} 
 
 handle_user_message(Output, Pids, J_data, #state{host_name=H_name, socket=S, transport=Transport} = _State) ->
 	lists:foreach(fun(Pid)->
-		case is_process_alive(Pid) of
-			true ->
-				Pid ! {new_message, J_data},
-				Reply = ?OK;
-			false ->
-				Reply = ?ERROR_USER_NOT_ONLINE
-		end,
-					 
+		Reply = hawk_server_lib:send_message_to_pid(Pid, J_data),
 		case Output of
 			on_output ->
 				hawk_server_lib:send_message(mask(Reply), S, Transport);
@@ -233,9 +303,9 @@ handle_user_message(Output, Pids, J_data, #state{host_name=H_name, socket=S, tra
 			{ok, [[Qtype]], [[StrJSON]]} ->
 				JSON = jsx:decode(list_to_binary(StrJSON)),
 				case Qtype of
-					<<"send_group_message">> -> action_on_user({binary_to_list(Qtype), JSON}, State) ;
-					"send_group_message" -> action_on_user({Qtype, JSON}, State) ;
-					_ 						 -> action_on_user({Qtype, JSON}) 
+					<<"send_group_message">> -> api_action({binary_to_list(Qtype), JSON}, State) ;
+					    "send_group_message" -> api_action({Qtype, JSON}, State) ;
+					 					   _ -> api_action({Qtype, JSON}) 
 				end
 		end,
 	
@@ -245,7 +315,7 @@ handle_user_message(Output, Pids, J_data, #state{host_name=H_name, socket=S, tra
 
 	{stop, normal, State}.
 
-action_on_user({"register_user", J_data}) ->
+api_action({"register_user", J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Id = proplists:get_value(<<"id">>, J_data),
 	
@@ -256,7 +326,7 @@ action_on_user({"register_user", J_data}) ->
 			?ERROR_INVALID_LOGIN_FORMAT
 	end;
 
-action_on_user({"unregister_user", J_data}) ->
+api_action({"unregister_user", J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Id = proplists:get_value(<<"id">>, J_data),
 	case check_login_format(Id) of
@@ -266,41 +336,60 @@ action_on_user({"unregister_user", J_data}) ->
 			?ERROR_INVALID_LOGIN_FORMAT
 	end;
 
-action_on_user({"add_domain", J_data}) ->	
+api_action({"add_domain", J_data}) ->	
 	Key = proplists:get_value(<<"key">>, J_data),
 	Domain = proplists:get_value(<<"domain">>, J_data),
 	Login = proplists:get_value(<<"Login">>, J_data),
 	atom_to_list(get_data_from_worker({add_domain, Key, Domain, Login}));
 
-action_on_user({"del_domain", J_data}) ->
+api_action({"del_domain", J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Domain = proplists:get_value(<<"domain">>, J_data),
 	Login = proplists:get_value(<<"Login">>, J_data),
 	atom_to_list(get_data_from_worker({del_domain, Key, Domain, Login}));
 
-action_on_user({"add_in_groups", J_data}) ->
+api_action({"add_in_groups", J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Id = proplists:get_value(<<"id">>, J_data),
 	Groups = proplists:get_value(<<"groups">>, J_data),
 	Domains = proplists:get_value(<<"domains">>, J_data),
 
 	if
-		is_list(Groups) -> get_data_from_worker({add_in_groups, Key, Id, Groups, Domains});
+		is_list(Groups) -> get_data_from_worker({add_in_groups, Key, Id, Groups, Domains, ?GROUP_ACCESS_ALL});
 		true -> ?ERROR_INVALID_GROUP_FORMAT
 	end;
 
-action_on_user({"remove_from_groups", J_data}) ->
+api_action({"remove_from_groups", J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Id = proplists:get_value(<<"id">>, J_data),
 	Groups = proplists:get_value(<<"groups">>, J_data),
 	Domains = proplists:get_value(<<"domains">>, J_data),
 	
 	if
-		is_list(Groups) -> get_data_from_worker({remove_from_group, Key, Id, Groups, Domains});
+		is_list(Groups) -> get_data_from_worker({remove_from_group, Key, Id, Groups, Domains, ?GROUP_ACCESS_ALL});
 		true -> ?ERROR_INVALID_GROUP_FORMAT
 	end;
 
-action_on_user({"get_by_group",  J_data}) ->
+api_action({"add_groups", J_data}) ->
+	Key = proplists:get_value(<<"key">>, J_data),
+	Groups = proplists:get_value(<<"groups">>, J_data),
+	Domains = proplists:get_value(<<"domains">>, J_data),
+	get_data_from_worker({add_groups, Key, Groups, Domains});
+
+api_action({"remove_groups", J_data}) ->
+	Key = proplists:get_value(<<"key">>, J_data),
+	Groups = proplists:get_value(<<"groups">>, J_data),
+	Domains = proplists:get_value(<<"domains">>, J_data),
+	get_data_from_worker({remove_groups, Key, Groups, Domains});
+
+api_action({"get_group_list", J_data}) ->
+	Key = proplists:get_value(<<"key">>, J_data),
+	Access = proplists:get_value(<<"access">>, J_data),
+	Domains = proplists:get_value(<<"domains">>, J_data),
+	Groups = get_data_from_worker({get_group_list, Key, Access, Domains}),
+	jsx:encode(Groups);
+
+api_action({"get_by_group",  J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Groups = proplists:get_value(<<"groups">>, J_data),
 	Domains = proplists:get_value(<<"domains">>, J_data),
@@ -313,10 +402,10 @@ action_on_user({"get_by_group",  J_data}) ->
 			?ERROR_INVALID_GROUP_FORMAT
 	end.
 
-action_on_user({"send_group_message", J_data}, State) ->
-	action_on_user({"send_group_message", J_data}, State, off_output).
+api_action({"send_group_message", J_data}, State) ->
+	api_action({"send_group_message", J_data}, State, off_output).
 
-action_on_user({"send_group_message", J_data}, #state{parent=Parent} = State, Output) ->
+api_action({"send_group_message", J_data}, #state{parent=Parent} = State, Output) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	From = proplists:get_value(<<"from">>, J_data),
 	Time = proplists:get_value(<<"time">>, J_data),
@@ -348,13 +437,26 @@ action_on_user({"send_group_message", J_data}, #state{parent=Parent} = State, Ou
 				lists:foreach(fun(Record) ->
 					
 					G = proplists:get_value(group, Record),
-					U = proplists:get_value(user, Record),
-					O = proplists:get_value(online, Record),
-					if 
-						O ->
-							To_data = [{from, From}, {to_user, U}, {to_group, G}, {time, Time}, {text, Text}],
-							handle_user_message(Output, get_data_from_worker({get_pids, [U], Domains}), To_data, State);
-						true -> true
+					Acc = get_group_access(G, Domains),
+					Allow = if 
+						Acc == false -> false;
+						Acc == ?GROUP_ACCESS_PUBLIC -> true;
+						Acc == ?GROUP_ACCESS_PRIVATE -> get_data_from_worker({is_user_in_group, From, G, Domains});
+						true -> false
+					end,
+					
+					case Allow of
+						true ->
+							U = proplists:get_value(user, Record),
+							O = proplists:get_value(online, Record),
+							if 
+								O ->
+									To_data = [{from, From}, {to_user, U}, {to_group, G}, {time, Time}, {text, Text}],
+									handle_user_message(Output, get_data_from_worker({get_pids, [U], Domains}), To_data, State);
+								true -> true
+							end;
+						false ->
+							?ERROR_ACCESS_DENIED_TO_GROUP
 					end
 				end, Records)
 			end, Res),
@@ -462,4 +564,9 @@ check_login_format(Data) ->
         	false
       end.
 
+get_group_access(G, [Dom|_] = _Domains) ->
+	case dets:lookup(groups_to_user, {G, Dom}) of
+		[] -> false;
+		[{_Key, _Users, Access}] -> Access  
+	end.
 

@@ -165,9 +165,11 @@ handle_json_message({<<"send_message">>, {ToUser, undefined}, J_data},
 					#state{socket=S, host_name=H_name, curent_login=CurentLogin, transport=Transport} = State) ->
 	Domains = proplists:get_value(<<"domains">>, J_data),
 	
+	C_j_data = delete_keys([<<"key">>, <<"domains">>], J_data),
+	
 	if 
 		{H_name, ToUser} =/= CurentLogin ->
- 			handle_user_message(on_output, get_data_from_worker({get_pids, [ToUser], Domains}), J_data, State);
+ 			handle_user_message(on_output, get_data_from_worker({get_pids, [ToUser], Domains}), C_j_data, State);
 		true ->
 			hawk_server_lib:send_message(mask(?ERROR_SEND_MESSAGE_YOURSELF), S, Transport)
 	end;
@@ -304,8 +306,9 @@ handle_user_message(Output, Pids, J_data, #state{host_name=H_name, socket=S, tra
 				JSON = jsx:decode(list_to_binary(StrJSON)),
 				case Qtype of
 					<<"send_group_message">> -> api_action({binary_to_list(Qtype), JSON}, State) ;
-					    "send_group_message" -> api_action({Qtype, JSON}, State) ;
-					 					   _ -> api_action({Qtype, JSON}) 
+					"send_group_message" -> api_action({Qtype, JSON}, State) ;
+					"send_message" -> api_action({Qtype, JSON}, State) ;
+					_ -> api_action({Qtype, JSON}) 
 				end
 		end,
 	
@@ -403,14 +406,20 @@ api_action({"get_by_group",  J_data}) ->
 	end.
 
 api_action({"send_group_message", J_data}, State) ->
-	api_action({"send_group_message", J_data}, State, off_output).
+	api_action({"send_group_message", J_data}, State, off_output);
+
+api_action({"send_message", J_data}, State) ->
+	To = proplists:get_value(<<"to">>, J_data),
+	Domains = proplists:get_value(<<"domains">>, J_data),
+	C_j_data = delete_keys([<<"key">>, <<"domains">>], J_data),
+	
+	handle_user_message(off_output, get_data_from_worker({get_pids, [To], Domains}), C_j_data, State),
+	?OK.
 
 api_action({"send_group_message", J_data}, #state{parent=Parent} = State, Output) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	From = proplists:get_value(<<"from">>, J_data),
-	Time = proplists:get_value(<<"time">>, J_data),
 	Text = proplists:get_value(<<"text">>, J_data),
-%% 	Groups = proplists:get_value(<<"groups">>, J_data),
 	Domains = proplists:get_value(<<"domains">>, J_data),
 	
 	Groups = 
@@ -451,7 +460,8 @@ api_action({"send_group_message", J_data}, #state{parent=Parent} = State, Output
 							O = proplists:get_value(online, Record),
 							if 
 								O ->
-									To_data = [{from, From}, {to_user, U}, {to_group, G}, {time, Time}, {text, Text}],
+									%To_data = [{from, From}, {to_user, U}, {to_group, G}, {time, Time}, {text, Text}],
+									To_data = [{from, From}, {to_user, U}, {to_group, G}, {text, Text}],
 									handle_user_message(Output, get_data_from_worker({get_pids, [U], Domains}), To_data, State);
 								true -> true
 							end;
@@ -569,4 +579,14 @@ get_group_access(G, [Dom|_] = _Domains) ->
 		[] -> false;
 		[{_Key, _Users, Access}] -> Access  
 	end.
+
+delete_keys([], List) ->
+	List;
+
+delete_keys([Key|T] = _Keys, List) ->
+	New_l = proplists:delete(Key, List),
+	delete_keys(T, New_l).
+
+
+
 

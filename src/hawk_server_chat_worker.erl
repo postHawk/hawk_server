@@ -108,7 +108,7 @@ handle_login_main_data({ok,false, Reason}, _, #state{socket=S, transport=Transpo
 	Msg = 
 		case Reason of
 			no_id -> ?ERROR_USER_NOT_REGISTER;
-			no_login -> ?ERROR_INVALID_KEY;
+			no_login -> ?ERROR_INVALID_API_KEY;
 			no_domain -> ?ERROR_DOMAIN_NOT_REGISTER
 		end,
 	

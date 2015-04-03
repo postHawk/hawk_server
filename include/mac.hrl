@@ -6,7 +6,6 @@
 
 -define(ERROR_DOMAIN_NOT_REGISTER, <<"domain_not_register">>).
 -define(ERROR_USER_NOT_REGISTER, <<"user_not_register">>).
--define(ERROR_INVALID_KEY, <<"invalid_key">>).
 -define(ERROR_INVALID_API_KEY, <<"invalid_api_key">>).
 -define(ERROR_INVALID_LOGIN_FORMAT, <<"invalid_login_format">>).
 -define(ERROR_INVALID_HANDSHAKE, <<"invalid_handshake">>).

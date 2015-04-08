@@ -442,33 +442,31 @@ api_action({"send_group_message", J_data}, #state{parent=Parent} = State, Output
 		is_list(Groups) andalso is_list(Domains) andalso Check == true ->
 			
 			Res = get_data_from_worker({get_by_group, Key, Groups, Domains}),
-			lists:foreach(fun(Records) ->
-				lists:foreach(fun(Record) ->
-					
-					G = proplists:get_value(group, Record),
-					Acc = get_group_access(G, Domains),
-					Allow = if 
-						Acc == false -> false;
-						Acc == ?GROUP_ACCESS_PUBLIC -> true;
-						Acc == ?GROUP_ACCESS_PRIVATE -> get_data_from_worker({is_user_in_group, From, G, Domains});
-						true -> false
-					end,
-					
-					case Allow of
-						true ->
-							U = proplists:get_value(user, Record),
-							O = proplists:get_value(online, Record),
-							if 
-								O ->
-									%To_data = [{from, From}, {to_user, U}, {to_group, G}, {time, Time}, {text, Text}],
-									To_data = [{from, From}, {to_user, U}, {to_group, G}, {text, Text}],
-									handle_user_message(Output, get_data_from_worker({get_pids, [U], Domains}), To_data, State);
-								true -> true
-							end;
-						false ->
-							?ERROR_ACCESS_DENIED_TO_GROUP
-					end
-				end, Records)
+
+			lists:foreach(fun(Record) ->
+				G = proplists:get_value(group, Record),
+				Acc = get_group_access(G, Domains),
+				Allow = if 
+					Acc == false -> false;
+					Acc == ?GROUP_ACCESS_PUBLIC -> true;
+					Acc == ?GROUP_ACCESS_PRIVATE -> get_data_from_worker({is_user_in_group, From, G, Domains});
+					true -> false
+				end,
+				
+				case Allow of
+					true ->
+						U = proplists:get_value(user, Record),
+						O = proplists:get_value(online, Record),
+						if 
+							O ->
+								%To_data = [{from, From}, {to_user, U}, {to_group, G}, {time, Time}, {text, Text}],
+								To_data = [{from, From}, {to_user, U}, {to_group, G}, {text, Text}],
+								handle_user_message(Output, get_data_from_worker({get_pids, [U], Domains}), To_data, State);
+							true -> true
+						end;
+					false ->
+						?ERROR_ACCESS_DENIED_TO_GROUP
+				end
 			end, Res),
 			?OK;
 		true -> 

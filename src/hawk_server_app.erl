@@ -17,8 +17,10 @@ start(_Type, _StartArgs) ->
 	
 	application:ensure_started(ranch),
 	application:ensure_started(bson),
-	application:ensure_started(erlmongo),
+	application:ensure_started(mongodb),
 	application:ensure_started(gproc),
+	
+	ok = filelib:ensure_dir("data"),
 	
 	dets:open_file(reg_users_data, [{access, read_write}, {type, set}, {auto_save, 10000}, {file, "data/reg_users_data"}, {ram_file, true}]),
 	dets:open_file(main_user_data, [{access, read_write}, {type, set}, {auto_save, 10000}, {file, "data/main_user_data"}, {ram_file, true}]),

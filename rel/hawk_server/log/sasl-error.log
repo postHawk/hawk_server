@@ -1,0 +1,110 @@
+
+=CRASH REPORT==== 8-Apr-2015::12:19:51 ===
+  crasher:
+    initial call: hawk_server_api_worker:init/1
+    pid: <0.1054.0>
+    registered_name: []
+    exception exit: {{case_clause,
+                         {error,{file_error,"data/groups_to_user",enoent}}},
+                     [{hawk_server_api_worker,'-add_user_to_group/5-fun-0-',
+                          5,
+                          [{file,
+                               "d:/ya_disk/hawk_server/src/hawk_server_api_worker.erl"},
+                           {line,266}]},
+                      {lists,foreach,2,[{file,"lists.erl"},{line,1336}]},
+                      {hawk_server_api_worker,handle_cast,2,
+                          [{file,
+                               "d:/ya_disk/hawk_server/src/hawk_server_api_worker.erl"},
+                           {line,145}]},
+                      {gen_server,try_dispatch,4,
+                          [{file,"gen_server.erl"},{line,593}]},
+                      {gen_server,handle_msg,5,
+                          [{file,"gen_server.erl"},{line,659}]},
+                      {proc_lib,init_p_do_apply,3,
+                          [{file,"proc_lib.erl"},{line,237}]}]}
+      in function  gen_server:terminate/7 (gen_server.erl, line 804)
+    ancestors: [hawk_server_api_sup,hawk_server_api_manager,hawk_server_sup,
+                  <0.999.0>]
+    messages: []
+    links: [<0.1039.0>]
+    dictionary: []
+    trap_exit: false
+    status: running
+    heap_size: 987
+    stack_size: 27
+    reductions: 537
+  neighbours:
+
+=SUPERVISOR REPORT==== 8-Apr-2015::12:19:52 ===
+     Supervisor: {local,hawk_server_api_sup}
+     Context:    child_terminated
+     Reason:     {{case_clause,
+                      {error,{file_error,"data/groups_to_user",enoent}}},
+                  [{hawk_server_api_worker,'-add_user_to_group/5-fun-0-',5,
+                       [{file,
+                            "d:/ya_disk/hawk_server/src/hawk_server_api_worker.erl"},
+                        {line,266}]},
+                   {lists,foreach,2,[{file,"lists.erl"},{line,1336}]},
+                   {hawk_server_api_worker,handle_cast,2,
+                       [{file,
+                            "d:/ya_disk/hawk_server/src/hawk_server_api_worker.erl"},
+                        {line,145}]},
+                   {gen_server,try_dispatch,4,
+                       [{file,"gen_server.erl"},{line,593}]},
+                   {gen_server,handle_msg,5,
+                       [{file,"gen_server.erl"},{line,659}]},
+                   {proc_lib,init_p_do_apply,3,
+                       [{file,"proc_lib.erl"},{line,237}]}]}
+     Offender:   [{pid,<0.1054.0>},
+                  {name,undefined},
+                  {mfargs,{hawk_server_api_worker,start_link,undefined}},
+                  {restart_type,temporary},
+                  {shutdown,2000},
+                  {child_type,worker}]
+
+
+=CRASH REPORT==== 8-Apr-2015::12:19:57 ===
+  crasher:
+    initial call: hawk_server_chat_worker:init/1
+    pid: <0.1053.0>
+    registered_name: []
+    exception exit: {timeout,
+                        {gen_server,call,
+                            [hawk_server_api_manager,
+                             {add_in_groups,
+                                 <<"Nflz2H7VcQ6Rve8lo3NDAKavZL+lSmUd5CuhhN585iHN4XsuTsE8O5N2U823egECQNWkVpFq45TLfCl1rALHhw==">>,
+                                 <<"cffba336a0fee613b8d7c7b9781244f3">>,
+                                 [<<"89e5d263c387e3ace58486c1eaa3adc7">>],
+                                 [<<"post-hawk.local">>],
+                                 <<"all">>}]}}
+      in function  gen_fsm:terminate/7 (gen_fsm.erl, line 611)
+    ancestors: [<0.1046.0>,hawk_server_clients,hawk_server_sup,<0.999.0>]
+    messages: []
+    links: [<0.1046.0>]
+    dictionary: []
+    trap_exit: false
+    status: running
+    heap_size: 376
+    stack_size: 27
+    reductions: 1000
+  neighbours:
+
+=SUPERVISOR REPORT==== 8-Apr-2015::12:19:57 ===
+     Supervisor: {<0.1046.0>,hawk_server_client}
+     Context:    child_terminated
+     Reason:     {timeout,
+                     {gen_server,call,
+                         [hawk_server_api_manager,
+                          {add_in_groups,
+                              <<"Nflz2H7VcQ6Rve8lo3NDAKavZL+lSmUd5CuhhN585iHN4XsuTsE8O5N2U823egECQNWkVpFq45TLfCl1rALHhw==">>,
+                              <<"cffba336a0fee613b8d7c7b9781244f3">>,
+                              [<<"89e5d263c387e3ace58486c1eaa3adc7">>],
+                              [<<"post-hawk.local">>],
+                              <<"all">>}]}}
+     Offender:   [{pid,<0.1053.0>},
+                  {name,undefined},
+                  {mfargs,{hawk_server_chat_worker,start_link,undefined}},
+                  {restart_type,temporary},
+                  {shutdown,2000},
+                  {child_type,worker}]
+

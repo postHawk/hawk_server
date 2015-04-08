@@ -184,7 +184,7 @@ handle_cast({From, {get_by_group, Key, Groups, Domains}}, State) ->
         _ ->
             get_users_by_groups(Groups, Domains)
     end,
-    
+
     gen_server:reply(From, Reply),
     {stop, normal, State};
 
@@ -376,7 +376,7 @@ get_users_by_groups(Groups, Domains) ->
 	Fun = fun(Gr) -> 
 			get_users_in_group(record, Gr, Domains)
 		end,
-    List = lists:map(Fun, Groups),
+    [List] = lists:map(Fun, Groups),
 
 	case hawk_server_lib:list_is_empty(List) of
 		true -> [];
@@ -394,8 +394,8 @@ get_users_in_group(Type, Gr, Domains) ->
 					end
 		    end		   
 		end,
-	List  = lists:map(FunD, Domains),
-	
+	[List]  = lists:map(FunD, Domains),
+
 	case hawk_server_lib:list_is_empty(List) of
 		true -> [];
 		false -> List

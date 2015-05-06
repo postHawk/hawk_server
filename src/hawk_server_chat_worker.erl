@@ -480,11 +480,11 @@ handle_event(Event, StateName, StateData) ->
 handle_sync_event(Event, _From, StateName, StateData) ->
     {stop, {StateName, undefined_event, Event}, StateData}.
  
-handle_info({tcp, Socket, Bin}, StateName, #state{socket=Socket} = StateData) ->
+handle_info({ssl, Socket, Bin}, StateName, #state{socket=Socket} = StateData) ->
     inet:setopts(Socket, [{active, once}]),
    	?MODULE:StateName({data, Bin}, StateData);
  
-handle_info({tcp_closed, Socket}, _StateName,
+handle_info({ssl_closed, Socket}, _StateName,
             #state{socket=Socket} = StateData) ->
 	
     {stop, normal, StateData};

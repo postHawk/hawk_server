@@ -32,6 +32,7 @@ start(_Type, _StartArgs) ->
 								   ranch_ssl, [
 											   {port, ListenPort},
 											   {certfile, "/home/admin/conf/web/ssl.post-hawk.com.pem"},
+											   {keyfile, "/home/admin/conf/web/ssl.post-hawk.com.key"},
 											   {cacertfile, "/home/admin/conf/web/sub.class1.server.sha2.ca .pem"},
 											   {ciphers, ["ECDHE-ECDSA-AES256-SHA384","ECDHE-RSA-AES256-SHA384",
 															 "ECDH-ECDSA-AES256-SHA384","ECDH-RSA-AES256-SHA384",

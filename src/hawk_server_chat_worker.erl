@@ -343,13 +343,13 @@ api_action({"add_domain", J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Domain = proplists:get_value(<<"domain">>, J_data),
 	Login = proplists:get_value(<<"Login">>, J_data),
-	atom_to_list(get_data_from_worker({add_domain, Key, Domain, Login}));
+	get_data_from_worker({add_domain, Key, Domain, Login});
 
 api_action({"del_domain", J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Domain = proplists:get_value(<<"domain">>, J_data),
 	Login = proplists:get_value(<<"Login">>, J_data),
-	atom_to_list(get_data_from_worker({del_domain, Key, Domain, Login}));
+	get_data_from_worker({del_domain, Key, Domain, Login});
 
 api_action({"add_in_groups", J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),

@@ -28,7 +28,27 @@ start(_Type, _StartArgs) ->
 	dets:open_file(user_to_groups, [{access, read_write}, {type, set}, {auto_save, 10000}, {file, "data/user_to_groups"}, {ram_file, true}]),
 	dets:open_file(created_groups, [{access, read_write}, {type, set}, {auto_save, 10000}, {file, "data/created_groups"}, {ram_file, true}]),
 	
-	{ok, _} = ranch:start_listener(hawk_pool, 1, ranch_tcp, [{port, ListenPort}], hawk_server_listener, []),
+	{ok, _} = ranch:start_listener(hawk_pool, 1, 
+								   ranch_ssl, [
+											   {port, ListenPort},
+											   {certfile, "/home/admin/conf/web/ssl.post-hawk.com.pem"},
+											   {cacertfile, "/home/admin/conf/web/sub.class1.server.sha2.ca .pem"},
+											   {ciphers, ["ECDHE-ECDSA-AES256-SHA384","ECDHE-RSA-AES256-SHA384",
+															 "ECDH-ECDSA-AES256-SHA384","ECDH-RSA-AES256-SHA384",
+															 "DHE-RSA-AES256-SHA256","DHE-DSS-AES256-SHA256",
+															 "AES256-SHA256","ECDHE-ECDSA-AES128-SHA256",
+															 "ECDHE-RSA-AES128-SHA256","ECDH-ECDSA-AES128-SHA256",
+															 "ECDH-RSA-AES128-SHA256","DHE-RSA-AES128-SHA256",
+															 "DHE-DSS-AES128-SHA256","AES128-SHA256",
+															 "ECDHE-ECDSA-AES256-SHA","ECDHE-RSA-AES256-SHA",
+															 "DHE-RSA-AES256-SHA","DHE-DSS-AES256-SHA",
+															 "ECDH-ECDSA-AES256-SHA","ECDH-RSA-AES256-SHA","AES256-SHA",
+															 "ECDHE-ECDSA-DES-CBC3-SHA","ECDHE-RSA-DES-CBC3-SHA",
+															 "EDH-RSA-DES-CBC3-SHA","EDH-DSS-DES-CBC3-SHA"
+														 ]
+											   },
+											   {verify, verify_peer}
+											  ], hawk_server_listener, []),
 	hawk_server_sup:start_link().
 
 stop(_State) ->

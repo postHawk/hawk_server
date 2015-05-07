@@ -42,7 +42,7 @@ start_link(Parent) ->
 init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 
 
-'WAIT_FOR_SOCKET'({socket_ready, Socket, H_name, Transport}, State) when is_port(Socket) ->
+'WAIT_FOR_SOCKET'({socket_ready, Socket, H_name, Transport}, State) ->
     % Now we own the socket
     {next_state, 'WAIT_FOR_DATA', State#state{
 		  socket=Socket, 
@@ -480,14 +480,14 @@ handle_event(Event, StateName, StateData) ->
 handle_sync_event(Event, _From, StateName, StateData) ->
     {stop, {StateName, undefined_event, Event}, StateData}.
  
-handle_info({ssl, Socket, Bin}, StateName, #state{socket=Socket} = StateData) ->
-    inet:setopts(Socket, [{active, once}]),
+handle_info({ssl, Socket, Bin}, StateName, #state{socket=Socket, transport=Transport} = StateData) ->
+    Transport:setopts(Socket, [{active, once}]),
    	?MODULE:StateName({data, Bin}, StateData);
  
 handle_info({ssl_closed, Socket}, _StateName,
             #state{socket=Socket} = StateData) ->
-	
     {stop, normal, StateData};
+
 handle_info(Data, StateName, StateData) ->
 	 ?MODULE:StateName(Data, StateData).
 

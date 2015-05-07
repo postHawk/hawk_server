@@ -132,11 +132,11 @@ is_post_req(Data) ->
     end.
 
 send_message({ok, Frame}, S, T) ->
-	case erlang:port_info(S) of
-		undefined ->
-			true;
-		_ -> 
-			ok = T:send(S, Frame)
+	case T:send(S, Frame) of
+		ok ->
+			ok;
+		{error, _Reason} -> 
+			T:close(S)
 	end.
 
 send_message_to_pid(Pid, J_data) ->

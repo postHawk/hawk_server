@@ -84,7 +84,7 @@ get_supervisor_by_name(Name) ->
 	end.
 
 set_client({'GET', Headers}) ->
-	Host = binary:replace(proplists:get_value(<<"Origin">>, Headers) ,<<"http://">>,<<"">>),
+	Host = binary:replace(proplists:get_value(<<"Origin">>, Headers) ,[<<"https://">>, <<"http://">>],<<"">>),
 	User = ?get_user_by_domain(Host),
 
 	%select or run supervisor for client
@@ -107,7 +107,7 @@ set_client({'GET', Headers}) ->
 set_client({'POST', Headers}) ->
 	{ok, Sup} = get_supervisor_by_name(<<"post_sup">>),
 	{ok, Client} = supervisor:start_child(Sup, [<<"post_sup">>]),
-	Host = binary:replace(proplists:get_value(<<"Origin">>, Headers) ,<<"http://">>,<<"">>),
+	Host = binary:replace(proplists:get_value(<<"Origin">>, Headers) ,[<<"https://">>, <<"http://">>],<<"">>),
 	{ok, Client, Host}.
 
 

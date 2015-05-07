@@ -95,12 +95,7 @@ handle_login_format(true, User_id, #state{host_name=H_name} = State) ->
 	handle_login_main_data(Ch_res, User_id, State);
 
 handle_login_format(false, _User_id, #state{socket=S, transport=Transport} = State) ->
-	case erlang:port_info(S) of
-		undefined ->
-			true;
-		_ -> 
-			hawk_server_lib:send_message(mask(?ERROR_INVALID_LOGIN_FORMAT), S, Transport)
-	end,
+	hawk_server_lib:send_message(mask(?ERROR_INVALID_LOGIN_FORMAT), S, Transport),
 	{next_state, 'WAIT_LOGIN_MESSAGE', State}.
 %==============
 

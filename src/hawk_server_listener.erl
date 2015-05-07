@@ -23,8 +23,7 @@ init(Ref, Socket, Transport, _Opts = []) ->
 	ok = ranch:accept_ack(Ref),
 	ok = Transport:setopts(Socket, [{active, once}]),
 	gen_server:enter_loop(?MODULE, [],
-		#state{socket=Socket, transport=Transport},
-		?TIMEOUT).
+		#state{socket=Socket, transport=Transport}).
 
 %% ====================================================================
 %% API functions

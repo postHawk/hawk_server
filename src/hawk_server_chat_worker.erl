@@ -48,8 +48,7 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 		  socket=Socket, 
 		  host_name=list_to_binary(H_name), 
 		  transport=Transport
-	 	}, 
-	 ?TIMEOUT};
+	 	}};
 
 'WAIT_FOR_SOCKET'(Other, State) ->
     error_logger:error_msg("State: 'WAIT_FOR_SOCKET'. Unexpected message: ~p\n", [Other]),
@@ -66,7 +65,7 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
     {stop, normal, State};
  
 'WAIT_FOR_DATA'(_Data, State) ->
-    {next_state, 'WAIT_FOR_DATA', State, ?TIMEOUT}.
+    {next_state, 'WAIT_FOR_DATA', State}.
 
  handle_req_by_type(post, Data, State) ->
 	?MODULE:'POST_ANSWER'({data, Data}, State);

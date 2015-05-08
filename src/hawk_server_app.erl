@@ -3,6 +3,7 @@
 
 -behaviour(application).
 
+-include("env.hrl").
 -include("mac.hrl").
 
 %% Application callbacks
@@ -15,6 +16,7 @@
 start(_Type, _StartArgs) ->
     ListenPort = get_app_env(listen_port, ?DEF_PORT),
 	
+	application:ensure_started(crypto),
 	application:ensure_started(ranch),
 	application:ensure_started(bson),
 	application:ensure_started(mongodb),
@@ -29,7 +31,7 @@ start(_Type, _StartArgs) ->
 	dets:open_file(created_groups, [{access, read_write}, {type, set}, {auto_save, 10000}, {file, "data/created_groups"}, {ram_file, true}]),
 	
 	{ok, _} = ranch:start_listener(hawk_pool, 1, 
-								   ranch_ssl, [
+								   ?TRANSPORT, [
 											   {port, ListenPort},
 											   {certfile, "/home/admin/conf/web/ssl.post-hawk.com.pem"},
 											   {keyfile, "/home/admin/conf/web/ssl.post-hawk.com.key"},

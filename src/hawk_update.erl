@@ -3,6 +3,7 @@
 
 
 -module(hawk_update).
+-include("env.hrl").
 -include("mac.hrl").
 %% ====================================================================
 %% API functions

@@ -4,6 +4,7 @@
 
 -module(hawk_server_client).
 -behaviour(supervisor).
+-include("env.hrl").
 -include("mac.hrl").
 
 -export([init/1]).

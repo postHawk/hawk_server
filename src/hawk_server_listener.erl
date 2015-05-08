@@ -6,6 +6,7 @@
 -behaviour(gen_server).
 -behaviour(ranch_protocol).
 
+-include("env.hrl").
 -include("mac.hrl").
 
 -export([start_link/4]).
@@ -31,7 +32,7 @@ init(Ref, Socket, Transport, _Opts = []) ->
 
 init([]) -> {ok, undefined}.
 
-handle_info({ssl, Socket, Data}, State=#state{socket=Socket, transport=Transport}) ->
+handle_info({?PROTOCOL, Socket, Data}, State=#state{socket=Socket, transport=Transport}) ->
 	Transport:setopts(Socket, [{active, once}]),
  	
 	{ok, {http_request,Method,{abs_path, _URL},_}, H} = erlang:decode_packet(http, Data, []),
@@ -48,9 +49,9 @@ handle_info({ssl, Socket, Data}, State=#state{socket=Socket, transport=Transport
 
 	{stop, normal, State};
 
-handle_info({ssl_closed, _Socket}, State) ->
+handle_info({?PROTOCOL_CLOSE, _Socket}, State) ->
 	{stop, normal, State};
-handle_info({ssl_error, _, Reason}, State) ->
+handle_info({?PROTOCOL_ERROR, _, Reason}, State) ->
 	{stop, Reason, State};
 handle_info(timeout, State) ->
 	{stop, normal, State};

@@ -3,6 +3,7 @@
 
 -behaviour(supervisor).
 
+-include("env.hrl").
 -include("mac.hrl").
 
 %% ====================================================================
@@ -46,6 +47,13 @@ init([]) ->
                   infinity,                                % Shutdown = brutal_kill | int() >= 0 | infinity
                   supervisor,                              % Type     = worker | supervisor
                   [hawk_server_clients]                                       % Modules  = [Module] | dynamic
+              },
+			  {   hawk_server_queue,
+                  {hawk_server_queue,start_link,[]},
+                  permanent,                               % Restart  = permanent | transient | temporary
+                  2000,                                % Shutdown = brutal_kill | int() >= 0 | infinity
+                  worker,                              % Type     = worker | supervisor
+                  [hawk_server_queue]                                       % Modules  = [Module] | dynamic
               }
             ]
         }

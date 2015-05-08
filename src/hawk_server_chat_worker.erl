@@ -4,6 +4,7 @@
 
 -export([start_link/1]).
 -import(crypto, [hmac/2]).
+-include("env.hrl").
 -include("mac.hrl").
 %% gen_fsm callbacks
 -export([init/1, handle_event/3,
@@ -50,8 +51,8 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 		  transport=Transport
 	 	}};
 
-'WAIT_FOR_SOCKET'(Other, State) ->
-    error_logger:error_msg("State: 'WAIT_FOR_SOCKET'. Unexpected message: ~p\n", [Other]),
+'WAIT_FOR_SOCKET'(_Other, State) ->
+    %error_logger:error_msg("State: 'WAIT_FOR_SOCKET'. Unexpected message: ~p\n", [Other]),
     %% Allow to receive async messages
     {next_state, 'WAIT_FOR_SOCKET', State}.
 
@@ -115,6 +116,17 @@ handle_login_main_data({ok,true}, Register_login, #state{socket=S, transport=Tra
 	gproc:reg({p,l,RegLogin}, undefined),
 	
 	hawk_server_lib:send_message(mask(?OK), S, Transport),
+	
+	case hawk_server_queue:get(RegLogin) of
+		[{_Key, _Size, List}] ->
+			lists:foreach(fun(To_data)->
+				handle_user_message(on_output, [self()], Register_login, To_data, State)
+			end, List),
+			hawk_server_queue:clear(RegLogin);
+		[] ->
+			true
+	end,
+	
 	{next_state, 'WAIT_USER_MESSAGE', State#state{curent_login=RegLogin, register_login=Register_login}}.
 
 %===============================================
@@ -163,7 +175,7 @@ handle_json_message({<<"send_message">>, {ToUser, undefined}, J_data},
 	
 	if 
 		{H_name, ToUser} =/= CurentLogin ->
- 			handle_user_message(on_output, get_data_from_worker({get_pids, [ToUser], Domains}), C_j_data, State);
+ 			handle_user_message(on_output, get_data_from_worker({get_pids, [ToUser], Domains}), ToUser, C_j_data, State);
 		true ->
 			hawk_server_lib:send_message(mask(?ERROR_SEND_MESSAGE_YOURSELF), S, Transport)
 	end;
@@ -265,15 +277,24 @@ handle_json_message({<<"remove_from_groups">>, _To, J_data}, #state{socket=S, tr
 
  %===============================================
 
-handle_user_message(Output, [], _To_data, #state{socket=S, transport=Transport} = _State) ->
+handle_user_message(Output, [], User, J_data, #state{socket=S, transport=Transport, host_name=Host} = _State) ->
 	case Output of
 		on_output ->
+			Key = {Host, User},
+			?DBG(Key),
+			case hawk_server_queue:add(Key, J_data) of
+				false ->
+					hawk_server_queue:new(Key, 5),
+					hawk_server_queue:add(Key, J_data);
+				ok ->
+					true
+			end,
 			hawk_server_lib:send_message(mask(?ERROR_USER_NOT_ONLINE), S, Transport);
 		_ ->
 			true
 	end;
 
-handle_user_message(Output, Pids, J_data, #state{host_name=H_name, socket=S, transport=Transport} = _State) ->
+handle_user_message(Output, Pids, _User, J_data, #state{host_name=H_name, socket=S, transport=Transport} = _State) ->
 	lists:foreach(fun(Pid)->
 		Reply = hawk_server_lib:send_message_to_pid(Pid, J_data),
 		case Output of
@@ -407,7 +428,7 @@ api_action({"send_message", J_data}, State) ->
 	Domains = proplists:get_value(<<"domains">>, J_data),
 	C_j_data = delete_keys([<<"key">>, <<"domains">>], J_data),
 	
-	handle_user_message(off_output, get_data_from_worker({get_pids, [To], Domains}), C_j_data, State),
+	handle_user_message(off_output, get_data_from_worker({get_pids, [To], Domains}), To, C_j_data, State),
 	?OK.
 
 api_action({"send_group_message", J_data}, #state{parent=Parent} = State, Output) ->
@@ -455,7 +476,7 @@ api_action({"send_group_message", J_data}, #state{parent=Parent} = State, Output
 							O ->
 								%To_data = [{from, From}, {to_user, U}, {to_group, G}, {time, Time}, {text, Text}],
 								To_data = [{from, From}, {to_user, U}, {to_group, G}, {text, Text}],
-								handle_user_message(Output, get_data_from_worker({get_pids, [U], Domains}), To_data, State);
+								handle_user_message(Output, get_data_from_worker({get_pids, [U], Domains}), U, To_data, State);
 							true -> true
 						end;
 					false ->
@@ -474,11 +495,11 @@ handle_event(Event, StateName, StateData) ->
 handle_sync_event(Event, _From, StateName, StateData) ->
     {stop, {StateName, undefined_event, Event}, StateData}.
  
-handle_info({ssl, Socket, Bin}, StateName, #state{socket=Socket, transport=Transport} = StateData) ->
+handle_info({?PROTOCOL, Socket, Bin}, StateName, #state{socket=Socket, transport=Transport} = StateData) ->
     Transport:setopts(Socket, [{active, once}]),
    	?MODULE:StateName({data, Bin}, StateData);
  
-handle_info({ssl_closed, Socket}, _StateName,
+handle_info({?PROTOCOL_CLOSE, Socket}, _StateName,
             #state{socket=Socket} = StateData) ->
     {stop, normal, StateData};
 

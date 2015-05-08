@@ -8,3 +8,4 @@ ttb_last_config
 deps/
 data/*
 !data/.gitkeep
+include/env.hrl

@@ -1,5 +1,6 @@
 -module(hawk_server_lib).
 -compile(export_all).
+-include("env.hrl").
 -include("mac.hrl").
 
 get_ancestors(Pid) when is_pid(Pid) ->

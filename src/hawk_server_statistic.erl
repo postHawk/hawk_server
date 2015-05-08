@@ -4,6 +4,7 @@
 
 -module(hawk_server_statistic).
 -behaviour(gen_server).
+-include("env.hrl").
 -include("mac.hrl").
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).

@@ -117,12 +117,9 @@ get_login(Login) ->
 	end.
 
 split_json_by_part(Str) ->
-	case re:run(Str, "^\{([^{]+)\}", [global,{capture,[1],list}]) of
-		{match, Qtype} ->
-			{ok, Qtype, [[re:replace(Str, "^\{([^{]+)\}", "", [global, {return,list}])]]};
-		nomatch ->  
-				false
-	end.
+	Json = jsx:decode(Str),
+	Qtype = proplists:get_value(<<"hawk_action">>, Json),
+	{ok, Qtype, Json}.
 
 is_post_req(Data) ->
 	case re:run(Data, "^POST \/ HTTP\/1.1\r\n") of

@@ -150,7 +150,7 @@ handle_login_main_data({ok,true}, Register_login, #state{socket=S, transport=Tra
 							U = proplists:get_value(<<"user">>, To)
 					end,
 
-					Action = proplists:get_value(<<"action">>, J_data),
+					Action = proplists:get_value(<<"hawk_action">>, J_data),
 					handle_json_message({Action, {U, Gr}, J_data}, State),
 					{next_state, 'WAIT_USER_MESSAGE', State}
 			end;
@@ -311,18 +311,16 @@ handle_user_message(Output, Pids, _User, J_data, #state{host_name=H_name, socket
 	{ok, {http_request,_Method,{abs_path, _URL},_}, H} = erlang:decode_packet(http, Data, []),
 	[_Headers, {body, POST}] = hawk_server_lib:parse_header(H),
 	
-	Splitted = hawk_server_lib:split_json_by_part(binary_to_list(POST)),
+	Splitted = hawk_server_lib:split_json_by_part(POST),
 	
 	Res = 
 		case Splitted of
 			false ->
 				?ERROR_UNKNOW_DATA_TYPE;
-			{ok, [[Qtype]], [[StrJSON]]} ->
-				JSON = jsx:decode(list_to_binary(StrJSON)),
+			{ok, Qtype, JSON} ->
 				case Qtype of
-					<<"send_group_message">> -> api_action({binary_to_list(Qtype), JSON}, State) ;
-					"send_group_message" -> api_action({Qtype, JSON}, State) ;
-					"send_message" -> api_action({Qtype, JSON}, State) ;
+					<<"send_group_message">> -> api_action({Qtype, JSON}, State) ;
+					<<"send_message">> -> api_action({Qtype, JSON}, State) ;
 					_ -> api_action({Qtype, JSON}) 
 				end
 		end,
@@ -333,7 +331,7 @@ handle_user_message(Output, Pids, _User, J_data, #state{host_name=H_name, socket
 
 	{stop, normal, State}.
 
-api_action({"register_user", J_data}) ->
+api_action({<<"register_user">>, J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Id = proplists:get_value(<<"id">>, J_data),
 	
@@ -344,7 +342,7 @@ api_action({"register_user", J_data}) ->
 			?ERROR_INVALID_LOGIN_FORMAT
 	end;
 
-api_action({"unregister_user", J_data}) ->
+api_action({<<"unregister_user">>, J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Id = proplists:get_value(<<"id">>, J_data),
 	case check_login_format(Id) of
@@ -354,19 +352,19 @@ api_action({"unregister_user", J_data}) ->
 			?ERROR_INVALID_LOGIN_FORMAT
 	end;
 
-api_action({"add_domain", J_data}) ->	
+api_action({<<"add_domain">>, J_data}) ->	
 	Key = proplists:get_value(<<"key">>, J_data),
 	Domain = proplists:get_value(<<"domain">>, J_data),
 	Login = proplists:get_value(<<"Login">>, J_data),
 	get_data_from_worker({add_domain, Key, Domain, Login});
 
-api_action({"del_domain", J_data}) ->
+api_action({<<"del_domain">>, J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Domain = proplists:get_value(<<"domain">>, J_data),
 	Login = proplists:get_value(<<"Login">>, J_data),
 	get_data_from_worker({del_domain, Key, Domain, Login});
 
-api_action({"add_in_groups", J_data}) ->
+api_action({<<"add_in_groups">>, J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Id = proplists:get_value(<<"id">>, J_data),
 	Groups = proplists:get_value(<<"groups">>, J_data),
@@ -377,7 +375,7 @@ api_action({"add_in_groups", J_data}) ->
 		true -> ?ERROR_INVALID_GROUP_FORMAT
 	end;
 
-api_action({"remove_from_groups", J_data}) ->
+api_action({<<"remove_from_groups">>, J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Id = proplists:get_value(<<"id">>, J_data),
 	Groups = proplists:get_value(<<"groups">>, J_data),
@@ -388,26 +386,26 @@ api_action({"remove_from_groups", J_data}) ->
 		true -> ?ERROR_INVALID_GROUP_FORMAT
 	end;
 
-api_action({"add_groups", J_data}) ->
+api_action({<<"add_groups">>, J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Groups = proplists:get_value(<<"groups">>, J_data),
 	Domains = proplists:get_value(<<"domains">>, J_data),
 	get_data_from_worker({add_groups, Key, Groups, Domains});
 
-api_action({"remove_groups", J_data}) ->
+api_action({<<"remove_groups">>, J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Groups = proplists:get_value(<<"groups">>, J_data),
 	Domains = proplists:get_value(<<"domains">>, J_data),
 	get_data_from_worker({remove_groups, Key, Groups, Domains});
 
-api_action({"get_group_list", J_data}) ->
+api_action({<<"get_group_list">>, J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Access = proplists:get_value(<<"access">>, J_data),
 	Domains = proplists:get_value(<<"domains">>, J_data),
 	Groups = get_data_from_worker({get_group_list, Key, Access, Domains}),
 	jsx:encode(Groups);
 
-api_action({"get_by_group",  J_data}) ->
+api_action({<<"get_by_group">>,  J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Groups = proplists:get_value(<<"groups">>, J_data),
 	Domains = proplists:get_value(<<"domains">>, J_data),
@@ -420,10 +418,10 @@ api_action({"get_by_group",  J_data}) ->
 			?ERROR_INVALID_GROUP_FORMAT
 	end.
 
-api_action({"send_group_message", J_data}, State) ->
+api_action({<<"send_group_message">>, J_data}, State) ->
 	api_action({"send_group_message", J_data}, State, off_output);
 
-api_action({"send_message", J_data}, State) ->
+api_action({<<"send_message">>, J_data}, State) ->
 	To = proplists:get_value(<<"to">>, J_data),
 	Domains = proplists:get_value(<<"domains">>, J_data),
 	C_j_data = delete_keys([<<"key">>, <<"domains">>], J_data),
@@ -431,7 +429,7 @@ api_action({"send_message", J_data}, State) ->
 	handle_user_message(off_output, get_data_from_worker({get_pids, [To], Domains}), To, C_j_data, State),
 	?OK.
 
-api_action({"send_group_message", J_data}, #state{parent=Parent} = State, Output) ->
+api_action({<<"send_group_message">>, J_data}, #state{parent=Parent} = State, Output) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	From = proplists:get_value(<<"from">>, J_data),
 	Text = proplists:get_value(<<"text">>, J_data),

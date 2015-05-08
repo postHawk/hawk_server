@@ -78,7 +78,7 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 	Key = proplists:get_value(<<"Sec-WebSocket-Key">>, Headers),
 
 	case Key of
-        undefined -> B_all_answ = ?ERROR_INVALID_HANDSHAKE;
+        undefined -> B_all_answ = ?get_server_message(<<"handshake">>, ?ERROR_INVALID_HANDSHAKE);
 		_ -> {ok, B_all_answ} = get_awsw_key(Key)
     end,
 
@@ -95,16 +95,16 @@ handle_login_format(true, User_id, #state{host_name=H_name} = State) ->
 	handle_login_main_data(Ch_res, User_id, State);
 
 handle_login_format(false, _User_id, #state{socket=S, transport=Transport} = State) ->
-	hawk_server_lib:send_message(mask(?ERROR_INVALID_LOGIN_FORMAT), S, Transport),
+	hawk_server_lib:send_message(mask(?get_server_message(<<"check_login">>, ?ERROR_INVALID_LOGIN_FORMAT)), S, Transport),
 	{next_state, 'WAIT_LOGIN_MESSAGE', State}.
 %==============
 
 handle_login_main_data({ok,false, Reason}, _, #state{socket=S, transport=Transport} = State) ->
 	Msg = 
 		case Reason of
-			no_id -> ?ERROR_USER_NOT_REGISTER;
-			no_login -> ?ERROR_INVALID_API_KEY;
-			no_domain -> ?ERROR_DOMAIN_NOT_REGISTER
+			no_id     -> ?get_server_message(<<"check_user">>, ?ERROR_USER_NOT_REGISTER);
+			no_login  -> ?get_server_message(<<"check_user">>, ?ERROR_INVALID_API_KEY);
+			no_domain -> ?get_server_message(<<"check_user">>, ?ERROR_DOMAIN_NOT_REGISTER)
 		end,
 	
 	hawk_server_lib:send_message(mask(Msg), S, Transport),
@@ -115,7 +115,7 @@ handle_login_main_data({ok,true}, Register_login, #state{socket=S, transport=Tra
 	RegLogin = {H_name, Register_login},
 	gproc:reg({p,l,RegLogin}, undefined),
 	
-	hawk_server_lib:send_message(mask(?OK), S, Transport),
+	hawk_server_lib:send_message(mask(?get_server_message(<<"check_user">>, false, ?OK)), S, Transport),
 	
 	case hawk_server_queue:get(RegLogin) of
 		[{_Key, _Size, List}] ->
@@ -177,21 +177,21 @@ handle_json_message({<<"send_message">>, {ToUser, undefined}, J_data},
 		{H_name, ToUser} =/= CurentLogin ->
  			handle_user_message(on_output, get_data_from_worker({get_pids, [ToUser], Domains}), ToUser, C_j_data, State);
 		true ->
-			hawk_server_lib:send_message(mask(?ERROR_SEND_MESSAGE_YOURSELF), S, Transport)
+			hawk_server_lib:send_message(mask(?get_server_message(<<"send_message">>, ?ERROR_SEND_MESSAGE_YOURSELF)), S, Transport)
 	end;
 
 handle_json_message({<<"send_message">>, {undefined, ToGrp}, J_data}, 
 					#state{socket=S, register_login=Login, transport=Transport} = State) when is_list(ToGrp) ->
 	Reply = case dets:lookup(reg_users_data, Login) of
         [] -> 
-        	?ERROR_USER_NOT_REGISTER;
+        	?get_server_message(<<"send_group_message">>, ?ERROR_USER_NOT_REGISTER);
         [{_, MLogin}] ->
             case dets:lookup(main_user_data, MLogin) of
                 [] -> 
-                	?ERROR_GENERAL_ERROR;
+                	?get_server_message(<<"send_group_message">>, ?ERROR_GENERAL_ERROR);
                 _ ->
                     api_action({"send_group_message", J_data}, State, on_output),
-                    ?OK
+                    ?get_server_message(<<"send_group_message">>, false, ?OK)
             end
     end,
     hawk_server_lib:send_message(mask(Reply), S, Transport);
@@ -201,17 +201,17 @@ handle_json_message({<<"send_message">>, {ToUser, ToGrp}, J_data},  State) when 
     handle_json_message({<<"send_message">>, {undefined, ToGrp}, J_data}, State);
 
 handle_json_message({<<"send_message">>, _To, _J_data}, #state{socket=S, transport=Transport}) ->
-	hawk_server_lib:send_message(mask(?ERROR_INVALID_FORMAT_DATA), S, Transport);
+	hawk_server_lib:send_message(mask(?get_server_message(<<"send_message">>, ?ERROR_INVALID_FORMAT_DATA)), S, Transport);
 
 handle_json_message({<<"get_group_list">>, _To, J_data}, #state{socket=S, transport=Transport}) ->
 	Login = proplists:get_value(<<"from">>, J_data),
 	Reply = case dets:lookup(reg_users_data, Login) of
         [] -> 
-        	?ERROR_USER_NOT_REGISTER;
+        	?get_server_message(<<"get_group_list">>, ?ERROR_USER_NOT_REGISTER);
         [{_, MLogin}] ->
             case dets:lookup(main_user_data, MLogin) of
                 [] -> 
-                	?ERROR_GENERAL_ERROR;
+                	?get_server_message(<<"get_group_list">>, ?ERROR_GENERAL_ERROR);
                 [{_Login, _Domains, Key}] ->
                     Res = get_data_from_worker({
 					   get_group_list, 
@@ -229,11 +229,11 @@ handle_json_message({<<"add_in_groups">>, _To, J_data}, #state{socket=S, transpo
 	Login = proplists:get_value(<<"id">>, J_data),
 	Reply = case dets:lookup(reg_users_data, Login) of
         [] -> 
-        	?ERROR_USER_NOT_REGISTER;
+        	?get_server_message(<<"add_in_groups">>, ?ERROR_USER_NOT_REGISTER);
         [{_, MLogin}] ->
             case dets:lookup(main_user_data, MLogin) of
                 [] -> 
-                	?ERROR_GENERAL_ERROR;
+                	?get_server_message(<<"add_in_groups">>, ?ERROR_GENERAL_ERROR);
                 [{_Login, _Domains, Key}] ->
                     Res = get_data_from_worker({
 					   add_in_groups, 
@@ -253,11 +253,11 @@ handle_json_message({<<"remove_from_groups">>, _To, J_data}, #state{socket=S, tr
 	Login = proplists:get_value(<<"id">>, J_data),
 	Reply = case dets:lookup(reg_users_data, Login) of
         [] -> 
-        	?ERROR_USER_NOT_REGISTER;
+        	?get_server_message(<<"remove_from_groups">>, ?ERROR_USER_NOT_REGISTER);
         [{_, MLogin}] ->
             case dets:lookup(main_user_data, MLogin) of
                 [] -> 
-                	?ERROR_GENERAL_ERROR;
+                	?get_server_message(<<"remove_from_groups">>, ?ERROR_GENERAL_ERROR);
                 [{_Login, _Domains, Key}] ->
                     Res = get_data_from_worker({
 					   remove_from_group, 
@@ -289,7 +289,7 @@ handle_user_message(Output, [], User, J_data, #state{socket=S, transport=Transpo
 				ok ->
 					true
 			end,
-			hawk_server_lib:send_message(mask(?ERROR_USER_NOT_ONLINE), S, Transport);
+			hawk_server_lib:send_message(mask(?get_server_message(<<"send_message">>, ?ERROR_USER_NOT_ONLINE)), S, Transport);
 		_ ->
 			true
 	end;
@@ -316,7 +316,7 @@ handle_user_message(Output, Pids, _User, J_data, #state{host_name=H_name, socket
 	Res = 
 		case Splitted of
 			false ->
-				?ERROR_UNKNOW_DATA_TYPE;
+				?get_server_message(<<"check_data">>, ?ERROR_UNKNOW_DATA_TYPE);
 			{ok, Qtype, JSON} ->
 				case Qtype of
 					<<"send_group_message">> -> api_action({Qtype, JSON}, State) ;
@@ -339,7 +339,7 @@ api_action({<<"register_user">>, J_data}) ->
 		true ->
 			get_data_from_worker({register_user, Key, Id});
 		false ->
-			?ERROR_INVALID_LOGIN_FORMAT
+			?get_server_message(<<"register_user">>, ?ERROR_INVALID_LOGIN_FORMAT)
 	end;
 
 api_action({<<"unregister_user">>, J_data}) ->
@@ -349,7 +349,7 @@ api_action({<<"unregister_user">>, J_data}) ->
 		true ->
 			get_data_from_worker({unregister_user, Key, Id});
 		false ->
-			?ERROR_INVALID_LOGIN_FORMAT
+			?get_server_message(<<"unregister_user">>, ?ERROR_INVALID_LOGIN_FORMAT)
 	end;
 
 api_action({<<"add_domain">>, J_data}) ->	
@@ -372,7 +372,7 @@ api_action({<<"add_in_groups">>, J_data}) ->
 
 	if
 		is_list(Groups) -> get_data_from_worker({add_in_groups, Key, Id, Groups, Domains, ?GROUP_ACCESS_ALL});
-		true -> ?ERROR_INVALID_GROUP_FORMAT
+		true -> ?get_server_message(<<"add_in_groups">>, ?ERROR_INVALID_GROUP_FORMAT)
 	end;
 
 api_action({<<"remove_from_groups">>, J_data}) ->
@@ -383,7 +383,7 @@ api_action({<<"remove_from_groups">>, J_data}) ->
 	
 	if
 		is_list(Groups) -> get_data_from_worker({remove_from_group, Key, Id, Groups, Domains, ?GROUP_ACCESS_ALL});
-		true -> ?ERROR_INVALID_GROUP_FORMAT
+		true -> ?get_server_message(<<"remove_from_groups">>, ?ERROR_INVALID_GROUP_FORMAT)
 	end;
 
 api_action({<<"add_groups">>, J_data}) ->
@@ -415,7 +415,7 @@ api_action({<<"get_by_group">>,  J_data}) ->
 			Res = get_data_from_worker({get_by_group, Key, Groups, Domains}),
 			jsx:encode(Res);
 		true -> 
-			?ERROR_INVALID_GROUP_FORMAT
+			?get_server_message(<<"get_by_group">>, ?ERROR_INVALID_GROUP_FORMAT)
 	end.
 
 api_action({<<"send_group_message">>, J_data}, State) ->
@@ -427,7 +427,7 @@ api_action({<<"send_message">>, J_data}, State) ->
 	C_j_data = delete_keys([<<"key">>, <<"domains">>], J_data),
 	
 	handle_user_message(off_output, get_data_from_worker({get_pids, [To], Domains}), To, C_j_data, State),
-	?OK.
+	?get_server_message(<<"send_message">>, false, ?OK).
 
 api_action({<<"send_group_message">>, J_data}, #state{parent=Parent} = State, Output) ->
 	Key = proplists:get_value(<<"key">>, J_data),
@@ -478,12 +478,12 @@ api_action({<<"send_group_message">>, J_data}, #state{parent=Parent} = State, Ou
 							true -> true
 						end;
 					false ->
-						?ERROR_ACCESS_DENIED_TO_GROUP
+						?get_server_message(<<"send_group_message">>, ?ERROR_ACCESS_DENIED_TO_GROUP)
 				end
 			end, Res),
-			?OK;
+			?get_server_message(<<"send_group_message">>, false, ?OK);
 		true -> 
-			?ERROR_INVALID_GROUP_FORMAT
+			?get_server_message(<<"send_group_message">>, ?ERROR_INVALID_GROUP_FORMAT)
 	end.
 
 %===============================================

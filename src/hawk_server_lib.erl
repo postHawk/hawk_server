@@ -118,8 +118,10 @@ get_login(Login) ->
 
 split_json_by_part(Str) ->
 	Json = jsx:decode(Str),
-	Qtype = proplists:get_value(<<"hawk_action">>, Json),
-	{ok, Qtype, Json}.
+	case proplists:get_value(<<"hawk_action">>, Json) of
+		undefined -> false;
+		Qtype 	  -> {ok, Qtype, Json}
+	end.
 
 is_post_req(Data) ->
 	case re:run(Data, "^POST \/ HTTP\/1.1\r\n") of
@@ -141,9 +143,9 @@ send_message_to_pid(Pid, J_data) ->
 	case is_process_alive(Pid) of
 		true ->
 			Pid ! {new_message, J_data},
-			?OK;
+			?get_server_message(<<"send_message">>, false, ?OK);
 		false ->
-			?ERROR_USER_NOT_ONLINE
+			?get_server_message(<<"send_message">>, ?ERROR_USER_NOT_ONLINE)
 	end.
 
 pid_2_name(Pid) ->

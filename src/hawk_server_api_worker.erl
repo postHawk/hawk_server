@@ -38,7 +38,7 @@ handle_cast({From, {register_user, Key, Id}}, State) ->
     {ok, User} = get_user_by_key(Key),
     case User of
         false ->
-            Reply = ?ERROR_INVALID_API_KEY;
+            Reply = ?get_server_message(<<"register_user">>, ?ERROR_INVALID_API_KEY);
         _ ->
 			{Login} = bson:lookup(login, User),
 			
@@ -49,7 +49,7 @@ handle_cast({From, {register_user, Key, Id}}, State) ->
                     true
             end,
             
-            Reply = ?OK
+            Reply = ?get_server_message(<<"register_user">>, false, ?OK)
     end,
 	gen_server:reply(From, Reply),
     {stop, normal, State};
@@ -59,10 +59,10 @@ handle_cast({From, {unregister_user, Key, Id}}, State) ->
    
     case User of
         false ->
-            Reply = ?ERROR_INVALID_API_KEY;
+            Reply = ?get_server_message(<<"unregister_user">>, ?ERROR_INVALID_API_KEY);
         _ ->
             dets:delete(reg_users_data, Id),
-            Reply = ?OK
+            Reply = ?get_server_message(<<"unregister_user">>, false, ?OK)
     end,
 	
     gen_server:reply(From, Reply),
@@ -100,7 +100,7 @@ handle_cast({From, {add_domain, Key, Domain, Login}}, State) ->
                 [{_, Hosts, Ukey}] ->
                     dets:insert(main_user_data, {Login, [Domain|Hosts], Ukey})
             end,
-            Res = ?OK;
+            Res = ?get_server_message(<<"add_domain">>, false, ?OK);
         true ->
             Res = false
     end,
@@ -119,7 +119,7 @@ handle_cast({From, {del_domain, Key, Domain, Login}}, State) ->
                     NewList = lists:delete(Domain, Hosts),
                     dets:insert(main_user_data, {Login, NewList, Ukey})
             end,
-            Res = ?OK;
+            Res = ?get_server_message(<<"del_domain">>, false, ?OK);
         true ->
             Res = false
     end,
@@ -135,19 +135,19 @@ handle_cast({From, {add_in_groups, Key, Login, Groups, Domains, Restriction}}, S
     {ok, User} = get_user_by_key(Key),
     Reply = case User of
         [] ->
-            ?ERROR_INVALID_API_KEY;
+            ?get_server_message(<<"add_in_groups">>, ?ERROR_INVALID_API_KEY);
         _ ->
 			case check_user_domains(bson:lookup(domain, User), Domains) of
 				true ->
 		            case dets:lookup(reg_users_data, Login) of
 		                [] ->
-		                    ?ERROR_USER_NOT_REGISTER;
+							?get_server_message(<<"add_in_groups">>, ?ERROR_USER_NOT_REGISTER);
 		                _ ->
 		                    add_user_to_group(Login, Groups, Domains, bson:lookup(login, User), Restriction) ,
-		                    ?OK
+							?get_server_message(<<"add_in_groups">>, false, ?OK)
 		            end;
 				false ->
-					 ?ERROR_DOMAIN_NOT_REGISTER
+					?get_server_message(<<"add_in_groups">>, ?ERROR_DOMAIN_NOT_REGISTER)
 			end
     end,
     
@@ -158,19 +158,19 @@ handle_cast({From, {remove_from_group, Key, Login, Groups, Domains, Restriction}
     {ok, User} = get_user_by_key(Key),
     case User of
         [] ->
-            Reply = ?ERROR_INVALID_API_KEY;
+            Reply = ?get_server_message(<<"remove_from_group">>, ?ERROR_INVALID_API_KEY);
         _ ->
 			case check_user_domains(bson:lookup(domain, User), Domains) of
 				true ->
 		            case dets:lookup(reg_users_data, Login) of
 		                [] ->
-		                    Reply = ?ERROR_USER_NOT_REGISTER;
+		                    Reply = ?get_server_message(<<"remove_from_group">>, ?ERROR_USER_NOT_REGISTER);
 		                _ ->
 		                    remove_user_from_group(Login, Groups, Domains, bson:lookup(login, User), Restriction),
-		                    Reply = ?OK
+		                    Reply = ?get_server_message(<<"remove_from_group">>, false, ?OK)
 		            end;
 				false ->
-					 Reply = ?ERROR_DOMAIN_NOT_REGISTER
+					 Reply = ?get_server_message(<<"remove_from_group">>, ?ERROR_DOMAIN_NOT_REGISTER)
 			end
     end,
     
@@ -181,7 +181,7 @@ handle_cast({From, {get_by_group, Key, Groups, Domains}}, State) ->
     {ok, User} = get_user_by_key(Key),
     Reply = case User of
         [] ->
-            ?ERROR_INVALID_API_KEY;
+            ?get_server_message(<<"get_by_group">>, ?ERROR_INVALID_API_KEY);
         _ ->
             get_users_by_groups(Groups, Domains)
     end,
@@ -193,7 +193,7 @@ handle_cast({From, {check_user_domains, Domains, Login}}, State) ->
     {ok, User} = ?get_user_by_login(Login),
     case User of
         [] ->
-            Reply = ?ERROR_INVALID_LOGIN_DATA;
+            Reply = ?get_server_message(<<"check_user">>, ?ERROR_INVALID_LOGIN_DATA);
         _ ->
             Reply = check_user_domains(bson:lookup(domain, User), Domains)
     end,
@@ -205,7 +205,7 @@ handle_cast({From, {get_user_groups, Key, Login, Domains}}, State) ->
     {ok, User} = get_user_by_key(Key),
     case User of
         [] ->
-            Reply = ?ERROR_INVALID_API_KEY;
+            Reply = ?get_server_message(<<"get_user_groups">>, ?ERROR_INVALID_API_KEY);
         _ ->
             Reply = get_user_groups(Domains, Login)
     end,
@@ -217,7 +217,7 @@ handle_cast({From, {add_groups, Key, Groups, Domains}}, State) ->
     {ok, User} = get_user_by_key(Key),
     case User of
         [] ->
-            Reply = ?ERROR_INVALID_API_KEY;
+            Reply = ?get_server_message(<<"add_groups">>, ?ERROR_INVALID_API_KEY);
         _ ->
             Reply = add_groups(Groups, Domains, bson:lookup(login, User))
     end,
@@ -229,7 +229,7 @@ handle_cast({From, {remove_groups, Key, Groups, Domains}}, State) ->
     {ok, User} = get_user_by_key(Key),
     Reply = case User of
         [] ->
-            ?ERROR_INVALID_API_KEY;
+            ?get_server_message(<<"remove_groups">>, ?ERROR_INVALID_API_KEY);
         _ ->
             remove_groups(Groups, Domains, bson:lookup(login, User))
     end,
@@ -251,7 +251,7 @@ handle_cast({From, {get_group_list, Key, Access, Domains}}, State) ->
 	{ok, User} = get_user_by_key(Key),
     Reply = case User of
         [] ->
-            ?ERROR_INVALID_API_KEY;
+            ?get_server_message(<<"get_group_list">>, ?ERROR_INVALID_API_KEY);
         _ ->
             get_group_list(Access, Domains, bson:lookup(login, User))
     end,
@@ -455,7 +455,7 @@ add_groups(Groups, Domains, {MLogin}) ->
 			end
 		end, Domains)
     end, Groups),
-	?OK.
+	?get_server_message(<<"add_groups">>, false, ?OK).
 
 remove_groups(Groups, Domains, {MLogin}) ->
 	lists:foreach(fun(Gr)->
@@ -482,7 +482,7 @@ remove_groups(Groups, Domains, {MLogin}) ->
 			hawk_server_lib:send_message_to_pid(Pid, To_data)
 		end, get_users_pids(Users, Domains))	
     end, Groups),
-	?OK.
+	?get_server_message(<<"remove_groups">>, false, ?OK).
 
 get_group_list(Access, Domains, {MLogin}) ->
 	

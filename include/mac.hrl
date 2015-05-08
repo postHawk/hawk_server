@@ -4,6 +4,8 @@
 -define(TIMEOUT, 120000).
 -define(API_SALT, "dfm@,vadn54/sdfa3;jx").
 
+-define(SERVER_REPLY, [{from, hawk_server}, {action, <<"">>}, {result, <<"">>}, {error, false}]).
+
 -define(ERROR_DOMAIN_NOT_REGISTER, <<"domain_not_register">>).
 -define(ERROR_USER_NOT_REGISTER, <<"user_not_register">>).
 -define(ERROR_INVALID_API_KEY, <<"invalid_api_key">>).
@@ -64,4 +66,19 @@
 				{ok, U}
 		end
 	end(Criteria)
+).
+
+-define(get_server_message(Action, Error), 
+	fun(A, E) ->
+		?get_server_message(A, E, <<"">>)
+	end(Action, Error)
+).
+
+-define(get_server_message(Action, Error, Result), 
+	fun(A, E, R) ->
+		R1 = lists:keyreplace(action, 1, ?SERVER_REPLY, {action, A}),
+		R2 = lists:keyreplace(error, 1, R1, {error, E}),
+		R3 = lists:keyreplace(result, 1, R2, {result, R}),
+		jsx:encode(R3)
+	end(Action, Error, Result)
 ).

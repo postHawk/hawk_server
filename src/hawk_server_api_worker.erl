@@ -177,13 +177,13 @@ handle_cast({From, {remove_from_group, Key, Login, Groups, Domains, Restriction}
     gen_server:reply(From, Reply),
     {stop, normal, State};
 
-handle_cast({From, {get_by_group, Key, Groups, Domains}}, State) ->
+handle_cast({From, {get_by_group, Key, Groups, Domains, Restriction}}, State) ->
     {ok, User} = get_user_by_key(Key),
     Reply = case User of
         [] ->
             ?get_server_message(<<"get_by_group">>, ?ERROR_INVALID_API_KEY);
         _ ->
-            get_users_by_groups(Groups, Domains)
+            get_users_by_groups(Groups, Domains, Restriction)
     end,
 
     gen_server:reply(From, Reply),
@@ -373,25 +373,33 @@ get_pids_by_hosts(Hosts, Login) ->
 		end,
     lists:flatten(lists:map(Fun, Hosts)).
 
-get_users_by_groups(Groups, Domains) ->
+get_users_by_groups(Groups, Domains, Restriction) ->
 	Fun = fun(Gr) -> 
-			get_users_in_group(record, Gr, Domains)
+			get_users_in_group(record, Gr, Domains, Restriction)
 		end,
-    [List] = lists:map(Fun, Groups),
-
+	
+    List = lists:map(Fun, Groups),
+	
 	case hawk_server_lib:list_is_empty(List) of
 		true -> [];
-		false -> [L || L <- List, L /= []]
+		false -> [L || [L] <- List, L /= []]
 	end.
 
-get_users_in_group(Type, Gr, Domains) ->
+get_users_in_group(Type, Gr, Domains, Restriction) ->
 	FunD = fun(Dom) ->
 			case dets:lookup(groups_to_user, {Gr, Dom}) of
 		        [] -> [];
 		        [{_, Users, Access}] -> 
 					case Type of
-						record -> get_users_records(Users, Gr, Dom, Access);
-						list -> Users
+						record -> 
+							if 
+								Restriction == ?GROUP_ACCESS_ALL orelse 
+								(Restriction == ?GROUP_ACCESS_PUBLIC andalso Access == ?GROUP_ACCESS_PUBLIC)  -> 
+									get_users_records(Users, Gr, Dom, Access);
+								true -> []
+							end;
+						list -> 
+							Users
 					end
 		    end		   
 		end,
@@ -459,7 +467,7 @@ add_groups(Groups, Domains, {MLogin}) ->
 
 remove_groups(Groups, Domains, {MLogin}) ->
 	lists:foreach(fun(Gr)->
-		Users = lists:flatten(get_users_in_group(list, Gr, Domains)),
+		Users = lists:flatten(get_users_in_group(list, Gr, Domains, ?GROUP_ACCESS_ALL)),
 		%delete user group and group
 		lists:foreach(fun(User) ->
 			lists:foreach(fun(Dom)->

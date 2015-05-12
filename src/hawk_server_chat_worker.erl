@@ -204,7 +204,7 @@ handle_json_message({<<"send_message">>, _To, _J_data}, #state{socket=S, transpo
 	hawk_server_lib:send_message(mask(?get_server_message(<<"send_message">>, ?ERROR_INVALID_FORMAT_DATA)), S, Transport);
 
 handle_json_message({<<"get_group_list">>, _To, J_data}, #state{socket=S, transport=Transport}) ->
-	Login = proplists:get_value(<<"from">>, J_data),
+	Login = proplists:get_value(<<"id">>, J_data),
 	Reply = case dets:lookup(reg_users_data, Login) of
         [] -> 
         	?get_server_message(<<"get_group_list">>, ?ERROR_USER_NOT_REGISTER);
@@ -263,6 +263,29 @@ handle_json_message({<<"remove_from_groups">>, _To, J_data}, #state{socket=S, tr
 					   remove_from_group, 
 					   Key, 
 					   Login, 
+					   proplists:get_value(<<"groups">>, J_data),
+					   proplists:get_value(<<"domains">>, J_data),
+					   ?GROUP_ACCESS_PUBLIC
+					  }),
+					jsx:encode(Res)
+            end
+    end,
+	
+	hawk_server_lib:send_message(mask(Reply), S, Transport);
+
+handle_json_message({<<"get_by_group">>, _To, J_data}, #state{socket=S, transport=Transport}) ->
+	Login = proplists:get_value(<<"id">>, J_data),
+	Reply = case dets:lookup(reg_users_data, Login) of
+        [] -> 
+        	?get_server_message(<<"get_by_group">>, ?ERROR_USER_NOT_REGISTER);
+        [{_, MLogin}] ->
+            case dets:lookup(main_user_data, MLogin) of
+                [] -> 
+                	?get_server_message(<<"get_by_group">>, ?ERROR_GENERAL_ERROR);
+                [{_Login, _Domains, Key}] ->
+                    Res = get_data_from_worker({
+					   get_by_group, 
+					   Key, 
 					   proplists:get_value(<<"groups">>, J_data),
 					   proplists:get_value(<<"domains">>, J_data),
 					   ?GROUP_ACCESS_PUBLIC
@@ -412,7 +435,7 @@ api_action({<<"get_by_group">>,  J_data}) ->
 	
 	if
 		is_list(Groups) -> 
-			Res = get_data_from_worker({get_by_group, Key, Groups, Domains}),
+			Res = get_data_from_worker({get_by_group, Key, Groups, Domains, ?GROUP_ACCESS_ALL}),
 			jsx:encode(Res);
 		true -> 
 			?get_server_message(<<"get_by_group">>, ?ERROR_INVALID_GROUP_FORMAT)

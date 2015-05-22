@@ -39,7 +39,8 @@ handle_info({?PROTOCOL, Socket, Data}, State=#state{socket=Socket, transport=Tra
 	[Headers, {body, _Body}] = hawk_server_lib:parse_header(H),
 	case set_client({Method, Headers}) of
 		{ok, false} -> 
-			Transport:send(Socket, ?get_server_message(<<"handshake">>, ?ERROR_DOMAIN_NOT_REGISTER));
+			hawk_server_chat_worker:handle_req_by_type(get, Data, Socket, Transport),
+			hawk_server_lib:send_message(true, ?get_server_message(<<"handshake">>, ?ERROR_DOMAIN_NOT_REGISTER), Socket, Transport);
 		{ok, Client, Host} ->
 			Transport:setopts(Socket, [{active, once}]),
 			Transport:controlling_process(Socket, Client),

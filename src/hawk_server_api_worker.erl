@@ -51,8 +51,10 @@ handle_cast({From, {register_user, Key, Id}}, State) ->
             
             Reply = ?get_server_message(<<"register_user">>, false, ?OK)
     end,
+	
+	hawk_server_api_manager:restore_worker(self()),
 	gen_server:reply(From, Reply),
-    {stop, normal, State};
+    {noreply, State};
 
 handle_cast({From, {unregister_user, Key, Id}}, State) ->
     {ok, User} = get_user_by_key(Key),
@@ -65,48 +67,51 @@ handle_cast({From, {unregister_user, Key, Id}}, State) ->
             Reply = ?get_server_message(<<"unregister_user">>, false, ?OK)
     end,
 	
+	hawk_server_api_manager:restore_worker(self()),
     gen_server:reply(From, Reply),
-    {stop, normal, State};
+    {noreply, State};
 
 handle_cast({From, {check_user_by_domain, Id, Domain}}, State) ->
-    case dets:lookup(reg_users_data, Id) of
+    Reply = case dets:lookup(reg_users_data, Id) of
         [] ->
-            Reply = {ok, false, no_id};
+            {ok, false, no_id};
         [{_, Login}] ->
             case dets:lookup(main_user_data, Login) of
                 [] -> 
-                    Reply = {ok, false, no_login};
+                    {ok, false, no_login};
                 [{_, Hosts, _}] ->
                     case lists:member(Domain, Hosts) of
                         true ->
-                            Reply = {ok, true};
+                            {ok, true};
                         false ->
-                            Reply = {ok, false, no_domain}
+                            {ok, false, no_domain}
                     end
             end
     end,
 	
+	hawk_server_api_manager:restore_worker(self()),
 	gen_server:reply(From, Reply),
-    {stop, normal, State};
+    {noreply, State};
 
 handle_cast({From, {add_domain, Key, Domain, Login}}, State) ->
-    
-    Kur_key = get_client_api_key(),
-    if 
-        Key == Kur_key ->
+    Cur_key = get_client_api_key(),
+	
+    Res = if 
+        Key == Cur_key ->
             case dets:lookup(main_user_data, Login) of
                 [] -> 
                     true;
                 [{_, Hosts, Ukey}] ->
                     dets:insert(main_user_data, {Login, [Domain|Hosts], Ukey})
             end,
-            Res = ?get_server_message(<<"add_domain">>, false, ?OK);
+            ?get_server_message(<<"add_domain">>, false, ?OK);
         true ->
-            Res = false
+            ?get_server_message(<<"add_domain">>, ?ERROR_USER_NOT_REGISTER)
     end,
 
+	hawk_server_api_manager:restore_worker(self()),
     gen_server:reply(From, Res),
-    {stop, normal, State};
+    {noreply, State};
 
 handle_cast({From, {del_domain, Key, Domain, Login}}, State) ->
     Kur_key = get_client_api_key(),
@@ -124,12 +129,14 @@ handle_cast({From, {del_domain, Key, Domain, Login}}, State) ->
             Res = false
     end,
 	
+	hawk_server_api_manager:restore_worker(self()),
     gen_server:reply(From, Res),
-    {stop, normal, State};
+    {noreply, State};
 
 handle_cast({From, {get_pids, Login, Domains}}, State) ->
+	hawk_server_api_manager:restore_worker(self()),
     gen_server:reply(From, get_users_pids(Login, Domains)),
-    {stop, normal, State};
+    {noreply, State};
 
 handle_cast({From, {add_in_groups, Key, Login, Groups, Domains, Restriction}}, State) ->
     {ok, User} = get_user_by_key(Key),
@@ -151,8 +158,9 @@ handle_cast({From, {add_in_groups, Key, Login, Groups, Domains, Restriction}}, S
 			end
     end,
     
+	hawk_server_api_manager:restore_worker(self()),
     gen_server:reply(From, Reply),
-    {stop, normal, State};
+    {noreply, State};
 
 handle_cast({From, {remove_from_group, Key, Login, Groups, Domains, Restriction}}, State) ->
     {ok, User} = get_user_by_key(Key),
@@ -174,8 +182,9 @@ handle_cast({From, {remove_from_group, Key, Login, Groups, Domains, Restriction}
 			end
     end,
     
+	hawk_server_api_manager:restore_worker(self()),
     gen_server:reply(From, Reply),
-    {stop, normal, State};
+    {noreply, State};
 
 handle_cast({From, {get_by_group, Key, Groups, Domains, Restriction}}, State) ->
     {ok, User} = get_user_by_key(Key),
@@ -186,8 +195,9 @@ handle_cast({From, {get_by_group, Key, Groups, Domains, Restriction}}, State) ->
             get_users_by_groups(Groups, Domains, Restriction)
     end,
 
+	hawk_server_api_manager:restore_worker(self()),
     gen_server:reply(From, Reply),
-    {stop, normal, State};
+    {noreply, State};
 
 handle_cast({From, {check_user_domains, Domains, Login}}, State) ->
     {ok, User} = ?get_user_by_login(Login),
@@ -198,8 +208,9 @@ handle_cast({From, {check_user_domains, Domains, Login}}, State) ->
             Reply = check_user_domains(bson:lookup(domain, User), Domains)
     end,
     
+	hawk_server_api_manager:restore_worker(self()),
     gen_server:reply(From, Reply),
-    {stop, normal, State};
+    {noreply, State};
 
 handle_cast({From, {get_user_groups, Key, Login, Domains}}, State) ->
     {ok, User} = get_user_by_key(Key),
@@ -210,8 +221,9 @@ handle_cast({From, {get_user_groups, Key, Login, Domains}}, State) ->
             Reply = get_user_groups(Domains, Login)
     end,
     
+	hawk_server_api_manager:restore_worker(self()),
     gen_server:reply(From, Reply),
-    {stop, normal, State};
+    {noreply, State};
 
 handle_cast({From, {add_groups, Key, Groups, Domains}}, State) ->
     {ok, User} = get_user_by_key(Key),
@@ -222,8 +234,9 @@ handle_cast({From, {add_groups, Key, Groups, Domains}}, State) ->
             Reply = add_groups(Groups, Domains, bson:lookup(login, User))
     end,
     
+	hawk_server_api_manager:restore_worker(self()),
     gen_server:reply(From, Reply),
-    {stop, normal, State};
+    {noreply, State};
 
 handle_cast({From, {remove_groups, Key, Groups, Domains}}, State) ->
     {ok, User} = get_user_by_key(Key),
@@ -234,8 +247,9 @@ handle_cast({From, {remove_groups, Key, Groups, Domains}}, State) ->
             remove_groups(Groups, Domains, bson:lookup(login, User))
     end,
     
+	hawk_server_api_manager:restore_worker(self()),
     gen_server:reply(From, Reply),
-    {stop, normal, State};
+    {noreply, State};
 
 handle_cast({From, {is_user_in_group, Login, Group, [Dom|_] = _Domains}}, State) ->
 	Reply = case dets:lookup(user_to_groups, {Login, Dom}) of
@@ -244,8 +258,10 @@ handle_cast({From, {is_user_in_group, Login, Group, [Dom|_] = _Domains}}, State)
         [{_, Grps}] -> 
 			lists:member(Group, Grps)
     end,
+	
+	hawk_server_api_manager:restore_worker(self()),
     gen_server:reply(From, Reply),
-    {stop, normal, State};
+    {noreply, State};
 
 handle_cast({From, {get_group_list, Key, Access, Domains}}, State) ->
 	{ok, User} = get_user_by_key(Key),
@@ -256,7 +272,11 @@ handle_cast({From, {get_group_list, Key, Access, Domains}}, State) ->
             get_group_list(Access, Domains, bson:lookup(login, User))
     end,
     
+	hawk_server_api_manager:restore_worker(self()),
     gen_server:reply(From, Reply),
+    {noreply, State};
+
+handle_cast(terminate, State) ->
     {stop, normal, State}.
 
 
@@ -320,6 +340,7 @@ add_group_to_user(Login, Dom, Gr) ->
 	end.
 
 remove_user_from_group(Login, Groups, Domains, {MLogin}, Restriction) ->
+
 	lists:foreach(fun(Gr)->
 		lists:foreach(fun(Dom)->
 	        case dets:lookup(groups_to_user, {Gr, Dom}) of
@@ -379,10 +400,11 @@ get_users_by_groups(Groups, Domains, Restriction) ->
 		end,
 	
     List = lists:map(Fun, Groups),
-	
 	case hawk_server_lib:list_is_empty(List) of
 		true -> [];
-		false -> [L || [L] <- List, L /= []]
+		false -> 
+			[Tmp] = [L || L <- List, L /= []],
+			Tmp
 	end.
 
 get_users_in_group(Type, Gr, Domains, Restriction) ->
@@ -404,7 +426,7 @@ get_users_in_group(Type, Gr, Domains, Restriction) ->
 		    end		   
 		end,
 	[List]  = lists:map(FunD, Domains),
-
+	
 	case hawk_server_lib:list_is_empty(List) of
 		true -> [];
 		false -> List
@@ -510,10 +532,10 @@ get_group_list(Access, Domains, {MLogin}) ->
 	hd(Groups).
 
 handle_info(_Data, State) ->
-	{stop, normal, State}.
+	{noreply, State}.
 
 handle_call(_Msg, _From, State) ->
-    {stop, normal, State}.
+    {noreply, State}.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

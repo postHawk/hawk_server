@@ -70,15 +70,26 @@
 
 -define(get_server_message(Action, Error), 
 	fun(A, E) ->
-		?get_server_message(A, E, <<"">>)
+		?get_server_message(A, E, <<"">>, true)
 	end(Action, Error)
 ).
 
 -define(get_server_message(Action, Error, Result), 
 	fun(A, E, R) ->
+		?get_server_message(A, E, R, true)
+	end(Action, Error, Result)
+).
+
+-define(get_server_message(Action, Error, Result, Encode), 
+	fun(A, E, R, Enc) ->
 		R1 = lists:keyreplace(action, 1, ?SERVER_REPLY, {action, A}),
 		R2 = lists:keyreplace(error, 1, R1, {error, E}),
 		R3 = lists:keyreplace(result, 1, R2, {result, R}),
-		jsx:encode(R3)
-	end(Action, Error, Result)
+		
+		if 
+			Enc == true -> jsx:encode(R3);
+			true -> R3
+		end
+	
+	end(Action, Error, Result, Encode)
 ).

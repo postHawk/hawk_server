@@ -19,6 +19,8 @@
 	'POST_ANSWER'/2
 ]).
 
+-export([handle_req_by_type/4]).
+
 -record(state,{
 	socket,    % client socket
 	addr,       % client address
@@ -35,7 +37,7 @@
 %%%------------------------------------------------------------------------
  
 get_data_from_worker(Params) ->
-	gen_server:call(hawk_server_api_manager, Params).
+	gen_server:call(hawk_server_api_manager, Params, 30000).
 
 start_link(Parent) ->
     gen_fsm:start_link(?MODULE, [Parent], []).
@@ -68,7 +70,10 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 'WAIT_FOR_DATA'(_Data, State) ->
     {next_state, 'WAIT_FOR_DATA', State}.
 
- handle_req_by_type(post, Data, State) ->
+handle_req_by_type(get, Data, S, Transport) ->
+	handle_req_by_type(get, Data, #state{socket=S, transport=Transport}).
+
+handle_req_by_type(post, Data, State) ->
 	?MODULE:'POST_ANSWER'({data, Data}, State);
 
  handle_req_by_type(get, Data, #state{socket=S, transport=Transport} = State) ->
@@ -76,13 +81,12 @@ init([Parent]) -> {ok, 'WAIT_FOR_SOCKET', #state{parent=Parent}}.
 	[Headers, {body, _Body}] = hawk_server_lib:parse_header(H),
 	
 	Key = proplists:get_value(<<"Sec-WebSocket-Key">>, Headers),
-
 	case Key of
         undefined -> B_all_answ = ?get_server_message(<<"handshake">>, ?ERROR_INVALID_HANDSHAKE);
 		_ -> {ok, B_all_answ} = get_awsw_key(Key)
     end,
 
-	hawk_server_lib:send_message({ok, B_all_answ}, S, Transport),
+	hawk_server_lib:send_message(false, B_all_answ, S, Transport),
 	{next_state, 'WAIT_LOGIN_MESSAGE', State}.
  
  %===============================================
@@ -95,7 +99,7 @@ handle_login_format(true, User_id, #state{host_name=H_name} = State) ->
 	handle_login_main_data(Ch_res, User_id, State);
 
 handle_login_format(false, _User_id, #state{socket=S, transport=Transport} = State) ->
-	hawk_server_lib:send_message(mask(?get_server_message(<<"check_login">>, ?ERROR_INVALID_LOGIN_FORMAT)), S, Transport),
+	hawk_server_lib:send_message(true, ?get_server_message(<<"check_login">>, ?ERROR_INVALID_LOGIN_FORMAT), S, Transport),
 	{next_state, 'WAIT_LOGIN_MESSAGE', State}.
 %==============
 
@@ -107,7 +111,7 @@ handle_login_main_data({ok,false, Reason}, _, #state{socket=S, transport=Transpo
 			no_domain -> ?get_server_message(<<"check_user">>, ?ERROR_DOMAIN_NOT_REGISTER)
 		end,
 	
-	hawk_server_lib:send_message(mask(Msg), S, Transport),
+	hawk_server_lib:send_message(true, Msg, S, Transport),
   	Transport:close(S),
 	{stop, normal, State};
 
@@ -115,7 +119,7 @@ handle_login_main_data({ok,true}, Register_login, #state{socket=S, transport=Tra
 	RegLogin = {H_name, Register_login},
 	gproc:reg({p,l,RegLogin}, undefined),
 	
-	hawk_server_lib:send_message(mask(?get_server_message(<<"check_user">>, false, ?OK)), S, Transport),
+	hawk_server_lib:send_message(true, ?get_server_message(<<"check_user">>, false, ?OK), S, Transport),
 	
 	case hawk_server_queue:get(RegLogin) of
 		[{_Key, _Size, List}] ->
@@ -132,6 +136,7 @@ handle_login_main_data({ok,true}, Register_login, #state{socket=S, transport=Tra
 %===============================================
 'WAIT_USER_MESSAGE'({data, Bin}, #state{socket=S, transport=Transport} = State) ->
 	{ok, Data} =  handle_data(Bin),
+	
 	case jsx:is_json(Data) of
 		true ->
 			J_data = jsx:decode(Data),
@@ -159,8 +164,7 @@ handle_login_main_data({ok,true}, Register_login, #state{socket=S, transport=Tra
 	end;
 
 'WAIT_USER_MESSAGE'({new_message, Bin}, #state{socket=S, transport=Transport} = State) ->
- 	{ok, Frame} = mask(jsx:encode(Bin)),
- 	hawk_server_lib:send_message({ok, Frame}, S, Transport),
+ 	hawk_server_lib:send_message(true, jsx:encode(Bin), S, Transport),
 	
 	{next_state, 'WAIT_USER_MESSAGE', State};
 
@@ -177,7 +181,7 @@ handle_json_message({<<"send_message">>, {ToUser, undefined}, J_data},
 		{H_name, ToUser} =/= CurentLogin ->
  			handle_user_message(on_output, get_data_from_worker({get_pids, [ToUser], Domains}), ToUser, C_j_data, State);
 		true ->
-			hawk_server_lib:send_message(mask(?get_server_message(<<"send_message">>, ?ERROR_SEND_MESSAGE_YOURSELF)), S, Transport)
+			hawk_server_lib:send_message(true, ?get_server_message(<<"send_message">>, ?ERROR_SEND_MESSAGE_YOURSELF), S, Transport)
 	end;
 
 handle_json_message({<<"send_message">>, {undefined, ToGrp}, J_data}, 
@@ -194,14 +198,14 @@ handle_json_message({<<"send_message">>, {undefined, ToGrp}, J_data},
                     ?get_server_message(<<"send_group_message">>, false, ?OK)
             end
     end,
-    hawk_server_lib:send_message(mask(Reply), S, Transport);
+    hawk_server_lib:send_message(true, Reply, S, Transport);
 
 handle_json_message({<<"send_message">>, {ToUser, ToGrp}, J_data},  State) when is_list(ToGrp) ->
     handle_json_message({<<"send_message">>, {ToUser, undefined}, J_data}, State) ,
     handle_json_message({<<"send_message">>, {undefined, ToGrp}, J_data}, State);
 
 handle_json_message({<<"send_message">>, _To, _J_data}, #state{socket=S, transport=Transport}) ->
-	hawk_server_lib:send_message(mask(?get_server_message(<<"send_message">>, ?ERROR_INVALID_FORMAT_DATA)), S, Transport);
+	hawk_server_lib:send_message(true, ?get_server_message(<<"send_message">>, ?ERROR_INVALID_FORMAT_DATA), S, Transport);
 
 handle_json_message({<<"get_group_list">>, _To, J_data}, #state{socket=S, transport=Transport}) ->
 	Login = proplists:get_value(<<"id">>, J_data),
@@ -214,16 +218,17 @@ handle_json_message({<<"get_group_list">>, _To, J_data}, #state{socket=S, transp
                 	?get_server_message(<<"get_group_list">>, ?ERROR_GENERAL_ERROR);
                 [{_Login, _Domains, Key}] ->
                     Res = get_data_from_worker({
-					   get_group_list, 
-					   Key, 
-					   ?GROUP_ACCESS_PUBLIC, 
-					   proplists:get_value(<<"domains">>, J_data)
+						   get_group_list, 
+						   Key, 
+						   ?GROUP_ACCESS_PUBLIC, 
+						   proplists:get_value(<<"domains">>, J_data)
 					  }),
-					jsx:encode(Res)
+
+					jsx:encode([{event, proplists:get_value(<<"event">>, J_data)}| ?get_server_message(<<"get_group_list">>, false, Res, false)])
             end
     end,
 	
-	hawk_server_lib:send_message(mask(Reply), S, Transport);
+	hawk_server_lib:send_message(true, Reply, S, Transport);
 
 handle_json_message({<<"add_in_groups">>, _To, J_data}, #state{socket=S, transport=Transport}) ->
 	Login = proplists:get_value(<<"id">>, J_data),
@@ -243,11 +248,11 @@ handle_json_message({<<"add_in_groups">>, _To, J_data}, #state{socket=S, transpo
 					   proplists:get_value(<<"domains">>, J_data),
 					   ?GROUP_ACCESS_PUBLIC
 					  }),
-					jsx:encode(Res)
+					jsx:encode([{event, proplists:get_value(<<"event">>, J_data)}|jsx:decode(Res)])
             end
     end,
 	
-	hawk_server_lib:send_message(mask(Reply), S, Transport);
+	hawk_server_lib:send_message(true, Reply, S, Transport);
 
 handle_json_message({<<"remove_from_groups">>, _To, J_data}, #state{socket=S, transport=Transport}) ->
 	Login = proplists:get_value(<<"id">>, J_data),
@@ -267,11 +272,11 @@ handle_json_message({<<"remove_from_groups">>, _To, J_data}, #state{socket=S, tr
 					   proplists:get_value(<<"domains">>, J_data),
 					   ?GROUP_ACCESS_PUBLIC
 					  }),
-					jsx:encode(Res)
+					jsx:encode([{event, proplists:get_value(<<"event">>, J_data)}|jsx:decode(Res)])
             end
     end,
 	
-	hawk_server_lib:send_message(mask(Reply), S, Transport);
+	hawk_server_lib:send_message(true, Reply, S, Transport);
 
 handle_json_message({<<"get_by_group">>, _To, J_data}, #state{socket=S, transport=Transport}) ->
 	Login = proplists:get_value(<<"id">>, J_data),
@@ -290,11 +295,12 @@ handle_json_message({<<"get_by_group">>, _To, J_data}, #state{socket=S, transpor
 					   proplists:get_value(<<"domains">>, J_data),
 					   ?GROUP_ACCESS_PUBLIC
 					  }),
-					jsx:encode(Res)
+
+					jsx:encode([{event, proplists:get_value(<<"event">>, J_data)}|?get_server_message(<<"get_by_group">>, false, Res, false)])
             end
     end,
-	
-	hawk_server_lib:send_message(mask(Reply), S, Transport).
+
+	hawk_server_lib:send_message(true, Reply, S, Transport).
 
  %===============================================
 
@@ -304,7 +310,6 @@ handle_user_message(Output, [], User, J_data, #state{socket=S, transport=Transpo
 	case Output of
 		on_output ->
 			Key = {Host, User},
-			?DBG(Key),
 			case hawk_server_queue:add(Key, J_data) of
 				false ->
 					hawk_server_queue:new(Key, 5),
@@ -312,7 +317,7 @@ handle_user_message(Output, [], User, J_data, #state{socket=S, transport=Transpo
 				ok ->
 					true
 			end,
-			hawk_server_lib:send_message(mask(?get_server_message(<<"send_message">>, ?ERROR_USER_NOT_ONLINE)), S, Transport);
+			hawk_server_lib:send_message(true, ?get_server_message(<<"send_message">>, ?ERROR_USER_NOT_ONLINE), S, Transport);
 		_ ->
 			true
 	end;
@@ -322,7 +327,7 @@ handle_user_message(Output, Pids, _User, J_data, #state{host_name=H_name, socket
 		Reply = hawk_server_lib:send_message_to_pid(Pid, J_data),
 		case Output of
 			on_output ->
-				hawk_server_lib:send_message(mask(Reply), S, Transport);
+				hawk_server_lib:send_message(true, jsx:encode([{event, proplists:get_value(<<"event">>, J_data)}|Reply]), S, Transport);
 			_ ->
 				true
 		end
@@ -349,7 +354,8 @@ handle_user_message(Output, Pids, _User, J_data, #state{host_name=H_name, socket
 		end,
 	
 	Frame = hawk_server_lib:convert_to_binary(["\r\n", Res]),
-	hawk_server_lib:send_message({ok, Frame}, S, Transport),
+
+	hawk_server_lib:send_message(false, Frame, S, Transport),
 	Transport:close(S),
 
 	{stop, normal, State}.
@@ -375,10 +381,10 @@ api_action({<<"unregister_user">>, J_data}) ->
 			?get_server_message(<<"unregister_user">>, ?ERROR_INVALID_LOGIN_FORMAT)
 	end;
 
-api_action({<<"add_domain">>, J_data}) ->	
+api_action({<<"add_domain">>, J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Domain = proplists:get_value(<<"domain">>, J_data),
-	Login = proplists:get_value(<<"Login">>, J_data),
+	Login = proplists:get_value(<<"login">>, J_data),
 	get_data_from_worker({add_domain, Key, Domain, Login});
 
 api_action({<<"del_domain">>, J_data}) ->
@@ -571,18 +577,6 @@ unmask(Payload, Masking = <<MA:8, MB:8, MC:8, MD:8>>, Acc) ->
             Acc1 = <<Acc/binary, (MA bxor A), (MB bxor B), (MC bxor C), (MD bxor D)>>,
             unmask(Rest, Masking, Acc1)
     end.
-
-mask(Data) ->
-	Len = size(Data),
-	if 	
-		(Len >= 126) and (Len =< 65535) ->
-			Frame = <<1:1, 0:3, 1:4, 0:1, 126:7, Len:16, Data/binary>>;
-		Len > 65536 ->
-			Frame = <<1:1, 0:3, 1:4, 0:1, 127:7, Len:64, Data/binary>>;
-		true -> 
-			Frame = <<1:1, 0:3, 1:4, 0:1, Len:7, Data/binary>>
-	end,
-	{ok, Frame}.
 
 handle_data(Data) ->
     <<_Fin:1, _Rsv:3, _Opcode:4, _Mask:1, Len:7, Rest/binary>> = Data,

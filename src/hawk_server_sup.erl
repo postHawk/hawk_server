@@ -32,13 +32,13 @@ init([]) ->
                   worker,                              % Type     = worker | supervisor
                   [hawk_server_statistic]                                       % Modules  = [Module] | dynamic
               },
-			  % api manager for post request
-			  {   hawk_server_api_manager,
-                  {hawk_server_api_manager, start_link, []},
+			  % queue server
+			  {   hawk_server_queue,
+                  {hawk_server_queue,start_link,[]},
                   permanent,                               % Restart  = permanent | transient | temporary
-                  infinity,                                % Shutdown = brutal_kill | int() >= 0 | infinity
-                  supervisor,                              % Type     = worker | supervisor
-                  [hawk_server_api_manager]                                       % Modules  = [Module] | dynamic
+                  2000,                                % Shutdown = brutal_kill | int() >= 0 | infinity
+                  worker,                              % Type     = worker | supervisor
+                  [hawk_server_queue]                                       % Modules  = [Module] | dynamic
               },
 			  % global clients supervisor
               {   hawk_server_clients,
@@ -48,12 +48,13 @@ init([]) ->
                   supervisor,                              % Type     = worker | supervisor
                   [hawk_server_clients]                                       % Modules  = [Module] | dynamic
               },
-			  {   hawk_server_queue,
-                  {hawk_server_queue,start_link,[]},
+			  % api manager for post request
+			  {   hawk_server_api_manager,
+                  {hawk_server_api_manager, start_link, []},
                   permanent,                               % Restart  = permanent | transient | temporary
-                  2000,                                % Shutdown = brutal_kill | int() >= 0 | infinity
-                  worker,                              % Type     = worker | supervisor
-                  [hawk_server_queue]                                       % Modules  = [Module] | dynamic
+                  infinity,                                % Shutdown = brutal_kill | int() >= 0 | infinity
+                  supervisor,                              % Type     = worker | supervisor
+                  [hawk_server_api_manager]                                       % Modules  = [Module] | dynamic
               }
             ]
         }

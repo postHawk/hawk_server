@@ -131,6 +131,12 @@ is_post_req(Data) ->
 			get
     end.
 
+send_message(true, Frame, S, T) ->
+	send_message(mask(Frame), S, T);
+
+send_message(false, Frame, S, T) ->
+	send_message({ok, Frame}, S, T).
+
 send_message({ok, Frame}, S, T) ->
 	case T:send(S, Frame) of
 		ok ->
@@ -143,10 +149,22 @@ send_message_to_pid(Pid, J_data) ->
 	case is_process_alive(Pid) of
 		true ->
 			Pid ! {new_message, J_data},
-			?get_server_message(<<"send_message">>, false, ?OK);
+			?get_server_message(<<"send_message">>, false, ?OK, false);
 		false ->
 			?get_server_message(<<"send_message">>, ?ERROR_USER_NOT_ONLINE)
 	end.
+
+mask(Data) ->
+	Len = size(Data),
+	if 	
+		(Len >= 126) and (Len =< 65535) ->
+			Frame = <<1:1, 0:3, 1:4, 0:1, 126:7, Len:16, Data/binary>>;
+		Len > 65536 ->
+			Frame = <<1:1, 0:3, 1:4, 0:1, 127:7, Len:64, Data/binary>>;
+		true -> 
+			Frame = <<1:1, 0:3, 1:4, 0:1, Len:7, Data/binary>>
+	end,
+	{ok, Frame}.
 
 pid_2_name(Pid) ->
     case ets:lookup(global_pid_names, Pid) of

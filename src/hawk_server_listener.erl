@@ -38,7 +38,7 @@ handle_info({?PROTOCOL, Socket, Data}, State=#state{socket=Socket, transport=Tra
 	{ok, {http_request,Method,{abs_path, _URL},_}, H} = erlang:decode_packet(http, Data, []),
 	[Headers, {body, _Body}] = hawk_server_lib:parse_header(H),
 	case set_client({Method, Headers}) of
-		{ok, false} -> 
+		{ok, false} ->
 			hawk_server_chat_worker:handle_req_by_type(get, Data, Socket, Transport),
 			hawk_server_lib:send_message(true, ?get_server_message(<<"handshake">>, ?ERROR_DOMAIN_NOT_REGISTER), Socket, Transport);
 		{ok, Client, Host} ->
@@ -85,24 +85,30 @@ get_supervisor_by_name(Name) ->
 	end.
 
 set_client({'GET', Headers}) ->
-	Host = binary:replace(proplists:get_value(<<"Origin">>, Headers) ,[<<"https://">>, <<"http://">>],<<"">>),
-	User = ?get_user_by_domain(Host),
+	Origin = proplists:get_value(<<"Origin">>, Headers),
 
-	%select or run supervisor for client
-	case User of
-		{ok, false} ->
-			{ok, false};
-		{ok, U} ->
-			{Login} = bson:lookup (login, U),
-			{U_hosts} = bson:lookup(domain, U),
-			{ApiKey} = bson:lookup(key, U),
-			
-			{ok, Sup} = get_supervisor_by_name(Login),
-			{ok, Client} = supervisor:start_child(Sup, [Login]),
-			
-			dets:insert(main_user_data, {Login, U_hosts, ApiKey}),
-			
-			{ok, Client, Host}
+	if
+		Origin /= undefined ->
+			Host = binary:replace(Origin ,[<<"https://">>, <<"http://">>],<<"">>),
+			User = ?get_user_by_domain(Host),
+			%select or run supervisor for client
+			case User of
+				{ok, false} ->
+					{ok, false};
+				{ok, U} ->
+					Login = maps:get (<<"login">>, U),
+					U_hosts = maps:get(<<"domain">>, U),
+					ApiKey = maps:get(<<"key">>, U),
+
+					{ok, Sup} = get_supervisor_by_name(Login),
+					{ok, Client} = supervisor:start_child(Sup, [Login]),
+
+					dets:insert(main_user_data, {Login, U_hosts, ApiKey}),
+
+					{ok, Client, Host}
+			end;
+		true ->
+			{ok, false}
 	end;
 
 set_client({'POST', Headers}) ->

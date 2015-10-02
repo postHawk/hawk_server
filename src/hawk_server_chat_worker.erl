@@ -193,8 +193,8 @@ handle_json_message({<<"send_message">>, {undefined, ToGrp}, J_data},
             case dets:lookup(main_user_data, MLogin) of
                 [] -> 
                 	?get_server_message(<<"send_group_message">>, ?ERROR_GENERAL_ERROR);
-                _ ->
-                    api_action({"send_group_message", J_data}, State, on_output),
+	            [{_Login, _Domains, Key}] ->
+                    api_action({<<"send_group_message">>, [{<<"key">>, Key}|J_data]}, State, on_output),
                     ?get_server_message(<<"send_group_message">>, false, ?OK)
             end
     end,
@@ -289,14 +289,19 @@ handle_json_message({<<"get_by_group">>, _To, J_data}, #state{socket=S, transpor
                 	?get_server_message(<<"get_by_group">>, ?ERROR_GENERAL_ERROR);
                 [{_Login, _Domains, Key}] ->
                     Res = get_data_from_worker({
-					   get_by_group, 
-					   Key, 
-					   proplists:get_value(<<"groups">>, J_data),
-					   proplists:get_value(<<"domains">>, J_data),
-					   ?GROUP_ACCESS_PUBLIC
-					  }),
+										   get_by_group,
+										   Key,
+										   proplists:get_value(<<"groups">>, J_data),
+										   proplists:get_value(<<"domains">>, J_data),
+										   ?GROUP_ACCESS_PUBLIC
+					          }),
 
-					jsx:encode([{event, proplists:get_value(<<"event">>, J_data)}|?get_server_message(<<"get_by_group">>, false, Res, false)])
+	                  case Res of
+											false ->
+												?get_server_message(<<"get_by_group">>, ?ERROR_INVALID_GROUP_COUNT);
+											_ ->
+												jsx:encode([{event, proplists:get_value(<<"event">>, J_data)}|?get_server_message(<<"get_by_group">>, false, Res, false)])
+	                  end
             end
     end,
 
@@ -338,7 +343,7 @@ handle_user_message(Output, Pids, _User, J_data, #state{host_name=H_name, socket
 'POST_ANSWER'({data, Data}, #state{socket=S, transport=Transport} = State) ->
 	{ok, {http_request,_Method,{abs_path, _URL},_}, H} = erlang:decode_packet(http, Data, []),
 	[_Headers, {body, POST}] = hawk_server_lib:parse_header(H),
-	
+
 	Splitted = hawk_server_lib:split_json_by_part(POST),
 	
 	Res = 
@@ -359,7 +364,9 @@ handle_user_message(Output, Pids, _User, J_data, #state{host_name=H_name, socket
 	Transport:close(S),
 
 	{stop, normal, State}.
-
+%===============================================
+%===========ACTION ON USER
+%===============================================
 api_action({<<"register_user">>, J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Id = proplists:get_value(<<"id">>, J_data),
@@ -380,7 +387,9 @@ api_action({<<"unregister_user">>, J_data}) ->
 		false ->
 			?get_server_message(<<"unregister_user">>, ?ERROR_INVALID_LOGIN_FORMAT)
 	end;
-
+%===============================================
+%===========ACTION ON DOMAINS
+%===============================================
 api_action({<<"add_domain">>, J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Domain = proplists:get_value(<<"domain">>, J_data),
@@ -392,7 +401,26 @@ api_action({<<"del_domain">>, J_data}) ->
 	Domain = proplists:get_value(<<"domain">>, J_data),
 	Login = proplists:get_value(<<"Login">>, J_data),
 	get_data_from_worker({del_domain, Key, Domain, Login});
+%===============================================
+%===========ACTION ON CHANELS
+%===============================================
+api_action({<<"add_chanel">>, J_data}) ->
+	Key = proplists:get_value(<<"key">>, J_data),
+	Name = proplists:get_value(<<"name">>, J_data),
+	Access = proplists:get_value(<<"access">>, J_data),
+	Domains = proplists:get_value(<<"domains">>, J_data),
+	get_data_from_worker({add_chanel, Key, Name,  Access, Domains});
 
+api_action({<<"remove_chanel">>, J_data}) ->
+	Key = proplists:get_value(<<"key">>, J_data),
+	Name = proplists:get_value(<<"name">>, J_data),
+	Access = proplists:get_value(<<"access">>, J_data),
+	Domains = proplists:get_value(<<"domains">>, J_data),
+	get_data_from_worker({remove_chanel, Key, Name, Access, Domains});
+
+%===============================================
+%===========ACTION ON GROUPS
+%===============================================
 api_action({<<"add_in_groups">>, J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Id = proplists:get_value(<<"id">>, J_data),
@@ -438,11 +466,15 @@ api_action({<<"get_by_group">>,  J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Groups = proplists:get_value(<<"groups">>, J_data),
 	Domains = proplists:get_value(<<"domains">>, J_data),
-	
+
 	if
 		is_list(Groups) -> 
-			Res = get_data_from_worker({get_by_group, Key, Groups, Domains, ?GROUP_ACCESS_ALL}),
-			jsx:encode(Res);
+			case get_data_from_worker({get_by_group, Key, Groups, Domains, ?GROUP_ACCESS_ALL}) of
+				false ->
+					?get_server_message(<<"get_by_group">>, ?ERROR_INVALID_GROUP_COUNT);
+				Res ->
+					jsx:encode(Res)
+			end;
 		true -> 
 			?get_server_message(<<"get_by_group">>, ?ERROR_INVALID_GROUP_FORMAT)
 	end.
@@ -463,8 +495,10 @@ api_action({<<"send_group_message">>, J_data}, #state{parent=Parent} = State, Ou
 	From = proplists:get_value(<<"from">>, J_data),
 	Text = proplists:get_value(<<"text">>, J_data),
 	Domains = proplists:get_value(<<"domains">>, J_data),
-	
-	Groups = 
+	Event = proplists:get_value(<<"event">>, J_data),
+
+
+	Groups =
 		case proplists:get_value(<<"groups">>, J_data) of
 			undefined ->
 				To = proplists:get_value(<<"to">>, J_data),
@@ -475,15 +509,17 @@ api_action({<<"send_group_message">>, J_data}, #state{parent=Parent} = State, Ou
 	
 	Check = if	
 		Parent =/= <<"post_sup">> ->
+			Restriction = ?GROUP_ACCESS_PUBLIC,
 			get_data_from_worker({check_user_domains, Domains, Parent});
 		true ->
+			Restriction = ?GROUP_ACCESS_ALL,
 			true
 	end,
 	
 	if
 		is_list(Groups) andalso is_list(Domains) andalso Check == true ->
 			
-			Res = get_data_from_worker({get_by_group, Key, Groups, Domains}),
+			Res = get_data_from_worker({get_by_group, Key, Groups, Domains, Restriction}),
 
 			lists:foreach(fun(Record) ->
 				G = proplists:get_value(group, Record),
@@ -501,8 +537,7 @@ api_action({<<"send_group_message">>, J_data}, #state{parent=Parent} = State, Ou
 						O = proplists:get_value(online, Record),
 						if 
 							O ->
-								%To_data = [{from, From}, {to_user, U}, {to_group, G}, {time, Time}, {text, Text}],
-								To_data = [{from, From}, {to_user, U}, {to_group, G}, {text, Text}],
+								To_data = [{from, From}, {to_user, U}, {to_group, G}, {text, Text}, {event, Event}],
 								handle_user_message(Output, get_data_from_worker({get_pids, [U], Domains}), U, To_data, State);
 							true -> true
 						end;

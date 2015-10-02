@@ -102,7 +102,7 @@ handle_cast({restore_worker, Pid}, #state{worker_pool=Pool, worker_count=WCount}
 			   
 	{noreply, NewState};
 
-handle_cast(Msg, State) ->
+handle_cast(_Msg, State) ->
 %% 	?DBG(Msg),
     {noreply, State}.
 

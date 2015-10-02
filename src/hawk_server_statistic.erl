@@ -69,12 +69,12 @@ handle_call({new_message_from_host, Host}, _From, #state{count_all_message=Cnt_m
 
 	{ok, Connection} = mongo:connect (?DB_NAME),
 	
-	Command = {'$set', {
-	    domain, hawk_server_lib:convert_to_binary({conv, Host}),
-	    time, Time,
-	    cnt_mess, New_cnt
+	Command = {<<"$set">>, {
+	    <<"domain">>, hawk_server_lib:convert_to_binary({conv, Host}),
+	    <<"time">>, Time,
+	    <<"cnt_mess">>, New_cnt
 	}},
-	mongo:update(Connection, <<"message_log">>, {domain, Host, time, Time}, Command, true),
+	mongo:update(Connection, <<"message_log">>, {<<"domain">>, Host, <<"time">>, Time}, Command, [{upsert, true}]),
 	mc_worker:disconnect(Connection),
 
 	Reply = {ok, New_cnt},
@@ -111,10 +111,10 @@ get_count_message(Host) ->
 init_message(Host) ->
 	B_host = list_to_binary(Host),
 	
-	User = ?get_user_by_domain(B_host),
+	{ok, User} = ?get_user_by_domain(B_host),
 
 	case User of
-		{ok, false} ->
+		false ->
 			{ok, false};
 		_ ->
 			{ok, Connection} = mongo:connect (?DB_NAME),
@@ -129,9 +129,9 @@ init_message(Host) ->
 					  }
 				]}),
 			
-			Sum = case Res of
-				[{'_id', B_host, summ, Cnt}] -> Cnt;
-				[] -> 0
+			Sum = case maps:size(Res) of
+				0 -> 0;
+				_ -> maps:get(<<"summ">>)
 			end,
 			
 			gen_server:cast(?MODULE, {init_message_for_host, Host, Sum}),

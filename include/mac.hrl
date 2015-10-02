@@ -18,6 +18,7 @@
 -define(ERROR_USER_NOT_ONLINE, <<"user_not_online">>).
 -define(ERROR_UNKNOW_DATA_TYPE, <<"unknow_data_type">>).
 -define(ERROR_INVALID_GROUP_FORMAT, <<"invalid_group_format">>).
+-define(ERROR_INVALID_GROUP_COUNT, <<"invalid_group_count">>).
 -define(ERROR_ACCESS_DENIED_TO_GROUP, <<"access_denied_to_group">>).
 
 -define(OK, <<"ok">>).
@@ -29,7 +30,7 @@
 
 %% -define(HOST, <<"127.0.0.1">>).
 %% -define(PORT, 27017).
--define(DB_NAME, <<"hawk">>).
+-define(DB_NAME, [{database, <<"hawk">>}]).
 
 -ifndef(DBG).
 	-define(DBG(Var), io:format("DEBUG: ~p:~p - ~p~n ~p~n", [?MODULE, ?LINE, ??Var, Var])).
@@ -59,11 +60,11 @@
 		Res = mongo:find_one(Connection, <<"users">>, Cr),
 		mc_worker:disconnect(Connection),
 		
-		case Res of
-			{} ->
+		case maps:size(Res) of
+			0 ->
 				{ok, false};
-			{U} ->
-				{ok, U}
+			_ ->
+				{ok, Res}
 		end
 	end(Criteria)
 ).
@@ -92,4 +93,11 @@
 		end
 	
 	end(Action, Error, Result, Encode)
+).
+
+-define(proplist_to_record(Record, List),
+	fun(R, L) ->
+		list_to_tuple([Record | [proplists:get_value(X, L)
+			|| X <- record_info(fields, R)]])
+	end(Record, List)
 ).

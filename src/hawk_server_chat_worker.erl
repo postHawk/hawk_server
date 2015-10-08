@@ -230,6 +230,33 @@ handle_json_message({<<"get_group_list">>, _To, J_data}, #state{socket=S, transp
 	
 	hawk_server_lib:send_message(true, Reply, S, Transport);
 
+handle_json_message({<<"get_group_by_simple_user">>, _To, J_data}, #state{socket=S, transport=Transport}) ->
+	Login = proplists:get_value(<<"id">>, J_data),
+	Reply = case dets:lookup(reg_users_data, Login) of
+        [] -> 
+        	?get_server_message(<<"get_group_by_simple_user">>, ?ERROR_USER_NOT_REGISTER);
+        [{_, MLogin}] ->
+            case dets:lookup(main_user_data, MLogin) of
+                [] -> 
+                	?get_server_message(<<"get_group_by_simple_user">>, ?ERROR_GENERAL_ERROR);
+                [{_Login, _Domains, Key}] ->
+                    Res = get_data_from_worker({
+						   get_group_by_simple_user, 
+						   Key, 
+						   Login,
+						   ?GROUP_ACCESS_PUBLIC, 
+						   proplists:get_value(<<"domains">>, J_data)
+					  }),
+
+					jsx:encode([
+						{event, proplists:get_value(<<"event">>, J_data)} 
+						| ?get_server_message(<<"get_group_by_simple_user">>, false, Res, false)
+					])
+            end
+    end,
+	
+	hawk_server_lib:send_message(true, Reply, S, Transport);
+
 handle_json_message({<<"add_in_groups">>, _To, J_data}, #state{socket=S, transport=Transport}) ->
 	Login = proplists:get_value(<<"id">>, J_data),
 	Reply = case dets:lookup(reg_users_data, Login) of
@@ -462,6 +489,16 @@ api_action({<<"get_group_list">>, J_data}) ->
 	Groups = get_data_from_worker({get_group_list, Key, Access, Domains}),
 	jsx:encode(Groups);
 
+%список групп по простому пользователю
+api_action({<<"get_group_by_simple_user">>, J_data}) ->
+	Key = proplists:get_value(<<"key">>, J_data),
+	Access = proplists:get_value(<<"access">>, J_data),
+	Domains = proplists:get_value(<<"domains">>, J_data),
+	Login = proplists:get_value(<<"login">>, J_data),
+
+	Groups = get_data_from_worker({get_group_by_simple_user, Key, Login, Access, Domains}),
+	jsx:encode(Groups);	
+
 api_action({<<"get_by_group">>,  J_data}) ->
 	Key = proplists:get_value(<<"key">>, J_data),
 	Groups = proplists:get_value(<<"groups">>, J_data),
@@ -521,30 +558,38 @@ api_action({<<"send_group_message">>, J_data}, #state{parent=Parent} = State, Ou
 			
 			Res = get_data_from_worker({get_by_group, Key, Groups, Domains, Restriction}),
 
-			lists:foreach(fun(Record) ->
-				G = proplists:get_value(group, Record),
-				Acc = get_group_access(G, Domains),
-				Allow = if 
-					Acc == false -> false;
-					Acc == ?GROUP_ACCESS_PUBLIC -> true;
-					Acc == ?GROUP_ACCESS_PRIVATE -> get_data_from_worker({is_user_in_group, From, G, Domains});
-					true -> false
-				end,
-				
-				case Allow of
-					true ->
-						U = proplists:get_value(user, Record),
-						O = proplists:get_value(online, Record),
-						if 
-							O ->
-								To_data = [{from, From}, {to_user, U}, {to_group, G}, {text, Text}, {event, Event}],
-								handle_user_message(Output, get_data_from_worker({get_pids, [U], Domains}), U, To_data, State);
-							true -> true
-						end;
-					false ->
-						?get_server_message(<<"send_group_message">>, ?ERROR_ACCESS_DENIED_TO_GROUP)
-				end
-			end, Res),
+			%@todo код крайне не оптимален, для больших групп могут наблюдаться проблемы производительности
+			lists:foreach(fun(Dom) ->
+				lists:foreach(fun(G) ->
+					lists:foreach(fun(Record) ->
+						Acc = get_group_access(G, Dom),
+
+						Allow = if
+							Acc == false -> false;
+							Acc == ?GROUP_ACCESS_PUBLIC -> true;
+							Acc == ?GROUP_ACCESS_PRIVATE -> get_data_from_worker({is_user_in_group, From, G, Dom});
+							true -> false
+						end,
+
+						case Allow of
+							true ->
+								Group = proplists:get_value(G, Record),
+								lists:foreach(fun(U) ->
+									Ulogin = proplists:get_value(user, U),
+									O = proplists:get_value(online, U),
+									if
+										O ->
+											To_data = [{from, From}, {to_user, Ulogin}, {to_group, G}, {text, Text}, {event, Event}],
+											handle_user_message(Output, get_data_from_worker({get_pids, [Ulogin], [Dom]}), Ulogin, To_data, State);
+										true -> true
+									end
+								end, proplists:get_value(users, Group));
+							false ->
+								?get_server_message(<<"send_group_message">>, ?ERROR_ACCESS_DENIED_TO_GROUP)
+						end
+					end, Res)
+				end, Groups)
+			end, Domains),
 			?get_server_message(<<"send_group_message">>, false, ?OK);
 		true -> 
 			?get_server_message(<<"send_group_message">>, ?ERROR_INVALID_GROUP_FORMAT)
@@ -637,7 +682,7 @@ check_login_format(Data) ->
         	false
       end.
 
-get_group_access(G, [Dom|_] = _Domains) ->
+get_group_access(G, Dom) ->
 	case dets:lookup(groups_to_user, {G, Dom}) of
 		[] -> false;
 		[{_Key, _Users, Access}] -> Access  

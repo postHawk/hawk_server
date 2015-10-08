@@ -252,13 +252,8 @@ handle_cast({From, {remove_groups, Key, Groups, Domains}}, State) ->
   gen_server:reply(From, Reply),
   {noreply, State};
 
-handle_cast({From, {is_user_in_group, Login, Group, [Dom | _] = _Domains}}, State) ->
-  Reply = case dets:lookup(user_to_groups, {Login, Dom}) of
-            [] ->
-              false;
-            [{_, Grps}] ->
-              lists:member(Group, Grps)
-          end,
+handle_cast({From, {is_user_in_group, Login, Group, Dom}}, State) ->
+  Reply = is_user_in_group(Group, Login, Dom),
 
   hawk_server_api_manager:restore_worker(self()),
   gen_server:reply(From, Reply),
@@ -276,6 +271,19 @@ handle_cast({From, {get_group_list, Key, Access, Domains}}, State) ->
   hawk_server_api_manager:restore_worker(self()),
   gen_server:reply(From, Reply),
   {noreply, State};
+
+handle_cast({From, {get_group_by_simple_user,  Key, Login, Access, Domains}}, State) ->
+  {ok, User} = get_user_by_key(Key),
+  Reply = case User of
+    false ->
+      ?get_server_message(<<"get_group_list">>, ?ERROR_INVALID_API_KEY);
+    _ ->
+      get_group_by_simple_user(Login, Access, Domains, maps:get(<<"login">>, User))
+  end,
+
+  hawk_server_api_manager:restore_worker(self()),
+  gen_server:reply(From, Reply),
+  {noreply, State};  
 
 handle_cast({From, {add_chanel, Key, Name, Access, Domains}}, State) ->
   {ok, User} = get_user_by_key(Key),
@@ -423,7 +431,7 @@ get_pids_by_hosts(Hosts, Login) ->
 
 get_users_by_groups(Groups, Domains, Restriction) when is_list(Groups), is_list(Domains) ->
   Fun = fun(Gr) ->
-    {Gr, [{access, Restriction}, {users, get_users_in_group(record, Gr, Domains, Restriction)}]}
+   [{Gr, [{access, Restriction}, {users, get_users_in_group(record, Gr, Domains, Restriction)}]}]
   end,
 
   List = lists:map(Fun, Groups),
@@ -447,7 +455,7 @@ get_users_in_group(Type, Gr, Domains, Restriction) ->
             if
               Restriction == ?GROUP_ACCESS_ALL orelse
                 (Restriction == ?GROUP_ACCESS_PUBLIC andalso Access == ?GROUP_ACCESS_PUBLIC) ->
-                get_users_records(Users, Gr, Dom, Access);
+                get_users_records(Users, Dom);
               true -> []
             end;
           list ->
@@ -462,11 +470,24 @@ get_users_in_group(Type, Gr, Domains, Restriction) ->
     false -> List
   end.
 
-get_users_records(Users, Gr, Dom, Access) ->
+get_users_records(Users, Dom) ->
   Fun = fun(U) ->
     [{user, U}, {online, is_user_online(U, Dom)}]
   end,
   lists:map(Fun, Users).
+
+get_group_by_simple_user(Login, Access, Domains, MLogin) ->
+	Groups = get_group_list(Access, Domains, MLogin),
+    [UGroups] = lists:map(fun(Dom) ->
+        [[{name, GName}, {access, Acc}] || [{name, GName}, {access, Acc}] <- Groups, is_user_in_group(GName, Login, Dom)]
+    end, Domains),
+    UGroups.
+
+is_user_in_group(Group, Login, Dom) ->
+	case dets:lookup(user_to_groups, {Login, Dom}) of
+        [] -> false;
+        [{_, Grps}] -> lists:member(Group, Grps)
+    end.
 
 is_user_online(U, Dom) ->
   case get_users_pids(U, Dom) of

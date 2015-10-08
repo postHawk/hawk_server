@@ -9,3 +9,7 @@ deps/
 data/*
 !data/.gitkeep
 include/env.hrl
+rel/
+pipe/
+hawk_server.iml
+.idea/

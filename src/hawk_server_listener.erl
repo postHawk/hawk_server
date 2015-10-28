@@ -102,8 +102,12 @@ set_client({'GET', Headers}) ->
 
 					{ok, Sup} = get_supervisor_by_name(Login),
 					{ok, Client} = supervisor:start_child(Sup, [Login]),
-
-					dets:insert(main_user_data, {Login, U_hosts, ApiKey}),
+					case dets:lookup(main_user_data, Login) of
+						[] ->
+							dets:insert(main_user_data, {Login, U_hosts, ApiKey});
+						_ ->
+							true
+					end,
 
 					{ok, Client, Host}
 			end;

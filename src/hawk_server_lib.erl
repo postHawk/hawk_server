@@ -220,3 +220,10 @@ format_headers([H|T] = _Headers, Acc) ->
 	
 list_is_empty(List) ->
 	lists:all(fun(L) -> L==[] end, List).
+
+loop_lists(Fun, Lists) -> loop_lists(foreach, Fun, Lists, []). % Use foreach by default.
+loop_lists(Method, Fun, Lists) -> loop_lists(Method, Fun, Lists, []). % User-selected list function.
+loop_lists(_Method, Fun, [], Args) -> Fun(Args);
+loop_lists(Method, Fun, [H|T], Args) ->
+	FunLoop = fun(Elem) -> loop_lists(Method, Fun, T, Args ++ [Elem]) end,
+	apply(lists, Method, [FunLoop, H]).

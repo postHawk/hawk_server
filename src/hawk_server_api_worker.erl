@@ -70,14 +70,17 @@ api_action({unregister_user, _Key, Id}, User) ->
 	?get_server_message(<<"unregister_user">>, false, ?OK);
 
 api_action({add_domain, Key, Domain, Login}, _User) ->
+	%нельзя вставить вызов функции в условие
+	CKey = get_client_api_key(),
 	if
-		Key == get_client_api_key() -> add_user_domain(Login, Domain);
+		Key == CKey -> add_user_domain(Login, Domain);
 		true -> ?get_server_message(<<"add_domain">>, ?ERROR_USER_NOT_REGISTER)
 	end;
 
 api_action({del_domain, Key, Domain, Login}, _User) ->
+	CKey = get_client_api_key(),
 	if
-		Key == get_client_api_key() ->
+		Key == CKey ->
 			remove_user_domain(Login, Domain),
 			?get_server_message(<<"del_domain">>, false, ?OK);
 		true ->

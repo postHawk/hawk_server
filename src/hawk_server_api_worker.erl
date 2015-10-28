@@ -15,9 +15,9 @@
 -export([]).
 
 -record(state, {
-  listener,       % Listening socket
-  acceptor,       % Asynchronous acceptor's internal reference
-  module          % FSM handling module
+	listener,       % Listening socket
+	acceptor,       % Asynchronous acceptor's internal reference
+	module          % FSM handling module
 }).
 
 %% ====================================================================
@@ -25,10 +25,10 @@
 %% ====================================================================
 
 start_link() ->
-  gen_server:start_link(?MODULE, [], []).
+	gen_server:start_link(?MODULE, [], []).
 
 init([]) ->
-  {ok, #state{}}.
+	{ok, #state{}}.
 
 %% ====================================================================
 %% Internal functions
@@ -305,7 +305,7 @@ get_users_by_groups(Groups, Domains, Restriction, MLogin) when is_list(Groups), 
 	end;
 
 get_users_by_groups(_, _, _, _) ->
-    false.
+	false.
 
 get_users_in_group(Type, Gr, Domains, Restriction, Mlogin) ->
 	FunD = fun(Dom) ->
@@ -357,12 +357,12 @@ is_user_in_group(Group, Login, Dom) ->
 	end.
 
 is_user_online(U, Dom, Mlogin) ->
-  case get_users_pids(U, Dom, Mlogin) of
-    [] ->
-      false;
-    _ ->
-      true
-  end.
+	case get_users_pids(U, Dom, Mlogin) of
+		[] ->
+			false;
+		_ ->
+			true
+	end.
 
 check_user_domains(UDomains, Domains) when is_list(Domains) ->
 	case string:str(lists:sort(UDomains), lists:sort(Domains)) of
@@ -448,34 +448,34 @@ get_group_list(Access, Domains, MLogin) ->
 	hd(Groups).
 
 add_chanel(Name, Access, Domains, User) ->
-  add_groups([{<<"name">>, {chanel, Name}}, {<<"access">>, Access}], Domains, User).
+	add_groups([{<<"name">>, {chanel, Name}}, {<<"access">>, Access}], Domains, User).
 
 remove_chanel(Name, Domains, User) ->
-  remove_groups([{chanel, Name}], Domains, User).
+	remove_groups([{chanel, Name}], Domains, User).
 
 handle_info(_Data, State) ->
-  {noreply, State}.
+	{noreply, State}.
 
 handle_call(_Msg, _From, State) ->
-  {noreply, State}.
+	{noreply, State}.
 
 code_change(_OldVsn, State, _Extra) ->
-  {ok, State}.
+	{ok, State}.
 
 terminate(_Reason, _State) ->
-  ok.
+	ok.
 
 %=================API FUNCTION===========================================
 
 get_client_api_key() ->
-  {{Year, Month, Day}, {Hour, _, _}} = erlang:localtime_to_universaltime(erlang:localtime()),
-  Time = [integer_to_list(Year), integer_to_list(Month), integer_to_list(Day), integer_to_list(Hour)],
-  Str = lists:flatten([?API_SALT, Time]),
-  Mac = crypto:hash(md5, Str),
-  base64:encode(Mac).
+	{{Year, Month, Day}, {Hour, _, _}} = erlang:localtime_to_universaltime(erlang:localtime()),
+	Time = [integer_to_list(Year), integer_to_list(Month), integer_to_list(Day), integer_to_list(Hour)],
+	Str = lists:flatten([?API_SALT, Time]),
+	Mac = crypto:hash(md5, Str),
+	base64:encode(Mac).
 
 get_user_by_key(Key) ->
-  ?get_user_by_key(Key).
+	?get_user_by_key(Key).
 
 add_user_domain(Login, Domain)->
 	case dets:lookup(main_user_data, Login) of

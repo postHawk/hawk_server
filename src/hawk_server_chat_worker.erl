@@ -179,19 +179,14 @@ handle_json_message({<<"send_message">>, {ToUser, undefined}, J_data},
 	end;
 
 handle_json_message({<<"send_message">>, {undefined, ToGrp}, J_data}, 
-					#state{socket=S, transport=Transport, parent=Mlogin} = State) when is_list(ToGrp) ->
+					#state{socket=S, transport=Transport, parent=Mlogin, key=Key} = State) when is_list(ToGrp) ->
 	Login = proplists:get_value(<<"id">>, J_data),
 	Reply = case dets:lookup(reg_users_data, {Login, Mlogin}) of
         [] -> 
         	?get_server_message(<<"send_group_message">>, ?ERROR_USER_NOT_REGISTER);
-        [{_, MLogin}] ->
-            case dets:lookup(main_user_data, MLogin) of
-                [] -> 
-                	?get_server_message(<<"send_group_message">>, ?ERROR_GENERAL_ERROR);
-	            [{_Login, _Domains, Key}] ->
-                    api_action({<<"send_group_message">>, [{<<"key">>, Key}|J_data]}, State, on_output),
-                    ?get_server_message(<<"send_group_message">>, false, ?OK)
-            end
+        _ ->
+            api_action({<<"send_group_message">>, [{<<"key">>, Key}|J_data]}, State, on_output),
+            ?get_server_message(<<"send_group_message">>, false, ?OK)
     end,
     hawk_server_lib:send_message(true, Reply, S, Transport);
 
@@ -202,129 +197,108 @@ handle_json_message({<<"send_message">>, {ToUser, ToGrp}, J_data},  State) when 
 handle_json_message({<<"send_message">>, _To, _J_data}, #state{socket=S, transport=Transport}) ->
 	hawk_server_lib:send_message(true, ?get_server_message(<<"send_message">>, ?ERROR_INVALID_FORMAT_DATA), S, Transport);
 
-handle_json_message({<<"get_group_list">>, _To, J_data}, #state{socket=S, transport=Transport, parent=Mlogin}) ->
+handle_json_message({<<"get_group_list">>, _To, J_data}, #state{socket=S, transport=Transport, parent=Mlogin, key=Key}) ->
 	Login = proplists:get_value(<<"id">>, J_data),
-	Reply = case dets:lookup(reg_users_data, {Login, Mlogin}) of
-        [] -> 
-        	?get_server_message(<<"get_group_list">>, ?ERROR_USER_NOT_REGISTER);
-        [{_, MLogin}] ->
-            case dets:lookup(main_user_data, MLogin) of
-                [] -> 
-                	?get_server_message(<<"get_group_list">>, ?ERROR_GENERAL_ERROR);
-                [{_Login, _Domains, Key}] ->
-                    Res = get_data_from_worker({
-						   get_group_list, 
-						   Key, 
-						   ?GROUP_ACCESS_PUBLIC, 
-						   proplists:get_value(<<"domains">>, J_data)
-					  }),
+	Reply =
+		case dets:lookup(reg_users_data, {Login, Mlogin}) of
+	        [] ->
+	            ?get_server_message(<<"get_group_list">>, ?ERROR_USER_NOT_REGISTER);
+	        _ ->
+	            Res = get_data_from_worker({
+					   get_group_list,
+					   Key,
+					   ?GROUP_ACCESS_PUBLIC,
+					   proplists:get_value(<<"domains">>, J_data)
+				  }),
 
-					jsx:encode([{event, proplists:get_value(<<"event">>, J_data)}| ?get_server_message(<<"get_group_list">>, false, Res, false)])
-            end
-    end,
+				jsx:encode([{event, proplists:get_value(<<"event">>, J_data)}| ?get_server_message(<<"get_group_list">>, false, Res, false)])
+        end,
 	
 	hawk_server_lib:send_message(true, Reply, S, Transport);
 
-handle_json_message({<<"get_group_by_simple_user">>, _To, J_data}, #state{socket=S, transport=Transport, parent=Mlogin}) ->
+handle_json_message({<<"get_group_by_simple_user">>, _To, J_data}, #state{socket=S, transport=Transport, parent=Mlogin, key=Key}) ->
 	Login = proplists:get_value(<<"id">>, J_data),
-	Reply = case dets:lookup(reg_users_data, {Login, Mlogin}) of
-        [] -> 
-        	?get_server_message(<<"get_group_by_simple_user">>, ?ERROR_USER_NOT_REGISTER);
-        [{_, MLogin}] ->
-            case dets:lookup(main_user_data, MLogin) of
-                [] -> 
-                	?get_server_message(<<"get_group_by_simple_user">>, ?ERROR_GENERAL_ERROR);
-                [{_Login, _Domains, Key}] ->
-                    Res = get_data_from_worker({
-						   get_group_by_simple_user, 
-						   Key, 
-						   Login,
-						   ?GROUP_ACCESS_PUBLIC, 
-						   proplists:get_value(<<"domains">>, J_data)
-					  }),
+	Reply =
+		case dets:lookup(reg_users_data, {Login, Mlogin}) of
+	        [] ->
+	            ?get_server_message(<<"get_group_by_simple_user">>, ?ERROR_USER_NOT_REGISTER);
+	        _ ->
+	            Res = get_data_from_worker({
+					   get_group_by_simple_user,
+					   Key,
+					   Login,
+					   ?GROUP_ACCESS_PUBLIC,
+					   proplists:get_value(<<"domains">>, J_data)
+				  }),
 
-					jsx:encode([
-						{event, proplists:get_value(<<"event">>, J_data)} 
-						| ?get_server_message(<<"get_group_by_simple_user">>, false, Res, false)
-					])
-            end
-    end,
+				jsx:encode([
+					{event, proplists:get_value(<<"event">>, J_data)}
+					| ?get_server_message(<<"get_group_by_simple_user">>, false, Res, false)
+				])
+	    end,
 	
 	hawk_server_lib:send_message(true, Reply, S, Transport);
 
-handle_json_message({<<"add_in_groups">>, _To, J_data}, #state{socket=S, transport=Transport, parent=Mlogin}) ->
+handle_json_message({<<"add_in_groups">>, _To, J_data}, #state{socket=S, transport=Transport, parent=Mlogin, key=Key}) ->
 	Login = proplists:get_value(<<"id">>, J_data),
-	Reply = case dets:lookup(reg_users_data, {Login, Mlogin}) of
-        [] -> 
-        	?get_server_message(<<"add_in_groups">>, ?ERROR_USER_NOT_REGISTER);
-        [{_, MLogin}] ->
-            case dets:lookup(main_user_data, MLogin) of
-                [] -> 
-                	?get_server_message(<<"add_in_groups">>, ?ERROR_GENERAL_ERROR);
-                [{_Login, _Domains, Key}] ->
-                    Res = get_data_from_worker({
-					   add_in_groups, 
-					   Key, 
-					   Login, 
-					   proplists:get_value(<<"groups">>, J_data),
-					   proplists:get_value(<<"domains">>, J_data),
-					   ?GROUP_ACCESS_PUBLIC
-					  }),
-					jsx:encode([{event, proplists:get_value(<<"event">>, J_data)}|jsx:decode(Res)])
-            end
-    end,
+	Reply =
+		case dets:lookup(reg_users_data, {Login, Mlogin}) of
+	        [] ->
+	            ?get_server_message(<<"add_in_groups">>, ?ERROR_USER_NOT_REGISTER);
+	        _ ->
+		        Res = get_data_from_worker({
+				   add_in_groups,
+				   Key,
+				   Login,
+				   proplists:get_value(<<"groups">>, J_data),
+				   proplists:get_value(<<"domains">>, J_data),
+				   ?GROUP_ACCESS_PUBLIC
+				  }),
+				jsx:encode([{event, proplists:get_value(<<"event">>, J_data)}|jsx:decode(Res)])
+		end,
 	
 	hawk_server_lib:send_message(true, Reply, S, Transport);
 
-handle_json_message({<<"remove_from_groups">>, _To, J_data}, #state{socket=S, transport=Transport, parent=Mlogin}) ->
+handle_json_message({<<"remove_from_groups">>, _To, J_data}, #state{socket=S, transport=Transport, parent=Mlogin, key=Key}) ->
 	Login = proplists:get_value(<<"id">>, J_data),
-	Reply = case dets:lookup(reg_users_data, {Login, Mlogin}) of
-        [] -> 
-        	?get_server_message(<<"remove_from_groups">>, ?ERROR_USER_NOT_REGISTER);
-        [{_, MLogin}] ->
-            case dets:lookup(main_user_data, MLogin) of
-                [] -> 
-                	?get_server_message(<<"remove_from_groups">>, ?ERROR_GENERAL_ERROR);
-                [{_Login, _Domains, Key}] ->
-                    Res = get_data_from_worker({
-					   remove_from_group, 
-					   Key, 
-					   Login, 
-					   proplists:get_value(<<"groups">>, J_data),
-					   proplists:get_value(<<"domains">>, J_data),
-					   ?GROUP_ACCESS_PUBLIC
-					  }),
-					jsx:encode([{event, proplists:get_value(<<"event">>, J_data)}|jsx:decode(Res)])
-            end
-    end,
+	Reply =
+		case dets:lookup(reg_users_data, {Login, Mlogin}) of
+	        [] ->
+	            ?get_server_message(<<"remove_from_groups">>, ?ERROR_USER_NOT_REGISTER);
+	        _ ->
+	            Res = get_data_from_worker({
+				   remove_from_group,
+				   Key,
+				   Login,
+				   proplists:get_value(<<"groups">>, J_data),
+				   proplists:get_value(<<"domains">>, J_data),
+				   ?GROUP_ACCESS_PUBLIC
+				  }),
+				jsx:encode([{event, proplists:get_value(<<"event">>, J_data)}|jsx:decode(Res)])
+	    end,
 	
 	hawk_server_lib:send_message(true, Reply, S, Transport);
 
-handle_json_message({<<"get_by_group">>, _To, J_data}, #state{socket=S, transport=Transport, parent=Mlogin}) ->
+handle_json_message({<<"get_by_group">>, _To, J_data}, #state{socket=S, transport=Transport, parent=Mlogin, key=Key}) ->
 	Login = proplists:get_value(<<"id">>, J_data),
 	Reply =
 		case dets:lookup(reg_users_data, {Login, Mlogin}) of
 			[] ->
 				?get_server_message(<<"get_by_group">>, ?ERROR_USER_NOT_REGISTER);
-			[{_, MLogin}] ->
-				case dets:lookup(main_user_data, MLogin) of
-					[] ->
-						?get_server_message(<<"get_by_group">>, ?ERROR_GENERAL_ERROR);
-					[{_Login, _Domains, Key}] ->
-						Res = get_data_from_worker({
-							get_by_group,
-							Key,
-							proplists:get_value(<<"groups">>, J_data),
-							proplists:get_value(<<"domains">>, J_data),
-							?GROUP_ACCESS_PUBLIC
-						}),
+			_ ->
+				Res = get_data_from_worker({
+					get_by_group,
+					Key,
+					proplists:get_value(<<"groups">>, J_data),
+					proplists:get_value(<<"domains">>, J_data),
+					?GROUP_ACCESS_PUBLIC
+				}),
 
-						case Res of
-							false ->
-								?get_server_message(<<"get_by_group">>, ?ERROR_INVALID_GROUP_COUNT);
-							_ ->
-								jsx:encode([{event, proplists:get_value(<<"event">>, J_data)}|?get_server_message(<<"get_by_group">>, false, Res, false)])
-						end
+				case Res of
+					false ->
+						?get_server_message(<<"get_by_group">>, ?ERROR_INVALID_GROUP_COUNT);
+					_ ->
+						jsx:encode([{event, proplists:get_value(<<"event">>, J_data)}|?get_server_message(<<"get_by_group">>, false, Res, false)])
 				end
 		end,
 

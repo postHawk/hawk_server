@@ -171,8 +171,15 @@ api_action({check_user_domains, _Key, Domains, _Login}, User) ->
 	check_user_domains(maps:get(<<"domain">>, User), Domains);
 
 api_action({is_user_in_group, _Key, Login, Group, Dom}, _User) ->
-	is_user_in_group(Group, Login, Dom).
+	is_user_in_group(Group, Login, Dom);
 
+api_action({get_token, _Key, Login, Salt, Domains}, User) ->
+	lists:map(fun(Dom) ->
+		Token = get_token(Login, Salt, Dom),
+		Mlogin = maps:get(<<"login">>, User),
+		set_token({Login, Mlogin, Dom}, Token),
+		{Dom, Token}
+	end, Domains).
 
 %======================================================================
 add_user_to_group(Login, Groups, Domains, MLogin, Restriction) ->
@@ -455,6 +462,13 @@ add_chanel(Name, Access, Domains, User) ->
 
 remove_chanel(Name, Domains, User) ->
 	remove_groups([{chanel, Name}], Domains, User).
+
+get_token(Login, Salt, Dom) ->
+	<<Mac/binary>> = crypto:hash(sha, list_to_binary([Login, Salt, Dom])),
+	base64:encode(Mac).
+
+set_token(Key, Token) ->
+	ets:insert(token_storage, {Key, Token}).
 
 handle_info(_Data, State) ->
 	{noreply, State}.

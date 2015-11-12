@@ -10,6 +10,9 @@ application:start(bson).
 application:start(mongodb).
 application:start(ranch).
 application:start(gproc).
+application:start(inets).
+
+application:ensure_all_started(shotgun).
 
 application:start (hawk_server).
 

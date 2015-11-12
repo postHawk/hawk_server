@@ -1,7 +1,7 @@
 {application, hawk_server,
  [
   {description, ""},
-  {vsn, "0.7.2"},
+  {vsn, "0.7.7"},
   {registered, []},
   {applications, [
                   kernel,

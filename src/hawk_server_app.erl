@@ -29,6 +29,7 @@ start(_Type, _StartArgs) ->
 	dets:open_file(groups_to_user, [{access, read_write}, {type, set}, {auto_save, 10000}, {file, "data/groups_to_user"}]),
 	dets:open_file(user_to_groups, [{access, read_write}, {type, set}, {auto_save, 10000}, {file, "data/user_to_groups"}]),
 	dets:open_file(created_groups, [{access, read_write}, {type, set}, {auto_save, 10000}, {file, "data/created_groups"}]),
+	ets:new(token_storage, [set, named_table, public]),
 
 	{ok, _} = ranch:start_listener(hawk_pool, 1,
 		?TRANSPORT, [

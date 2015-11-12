@@ -90,10 +90,35 @@ handle_req_by_type(post, Data, State) ->
 	{next_state, 'WAIT_LOGIN_MESSAGE', State}.
  
  %===============================================
-'WAIT_LOGIN_MESSAGE'({data, Bin}, #state{parent=MLogin} = State) ->
+'WAIT_LOGIN_MESSAGE'({data, Bin}, State) ->
 	{ok, Data} =  handle_data(Bin),
+	IsJson =jsx:is_json(Data),
+
+	if
+		IsJson /= false -> handle_auth_type(strong, jsx:decode(Data),  State) ;
+		true -> handle_auth_type(simple, Data, State)
+	end.
+
+handle_auth_type(simple, Data,  #state{parent=MLogin} = State) ->
 	{ok, User} = ?get_user_by_login(MLogin),
-	handle_login_format(check_login_format(Data), Data, State#state{key=maps:get(<<"key">>, User)}).
+	handle_login_format(check_login_format(Data), Data, State#state{key=maps:get(<<"key">>, User)});
+
+handle_auth_type(strong, Data,  #state{parent=MLogin, host_name=H_name} = State) ->
+	Login = proplists:get_value(<<"id">>, Data),
+	Token = proplists:get_value(<<"token">>, Data),
+
+	Check = if
+		Token /= undefined -> compare_token({Login, MLogin, H_name}, Token);
+		true -> true
+	end,
+	if 
+		Check == true ->
+			{ok, User} = ?get_user_by_login(MLogin),
+			handle_login_format(check_login_format(Login), Login, State#state{key=maps:get(<<"key">>, User)});
+		true ->
+			handle_login_format(invalid_token, Login, State)
+	end.
+
 
 handle_login_format(true, User_id, #state{host_name=H_name, key=Key} = State) ->
 	Ch_res = get_data_from_worker({check_user_by_domain, Key, User_id, H_name}),
@@ -101,7 +126,12 @@ handle_login_format(true, User_id, #state{host_name=H_name, key=Key} = State) ->
 
 handle_login_format(false, _User_id, #state{socket=S, transport=Transport} = State) ->
 	hawk_server_lib:send_message(true, ?get_server_message(<<"check_login">>, ?ERROR_INVALID_LOGIN_FORMAT), S, Transport),
+	{next_state, 'WAIT_LOGIN_MESSAGE', State};
+
+handle_login_format(invalid_token, _, #state{socket=S, transport=Transport} = State) ->
+	hawk_server_lib:send_message(true, ?get_server_message(<<"check_token">>, ?ERROR_INVALID_TOKEN), S, Transport),
 	{next_state, 'WAIT_LOGIN_MESSAGE', State}.
+
 %==============
 
 handle_login_main_data({ok,false, Reason}, _, #state{socket=S, transport=Transport} = State) ->
@@ -342,7 +372,7 @@ handle_user_message(Output, Pids, _User, J_data, #state{host_name=H_name, socket
 	[_Headers, {body, POST}] = hawk_server_lib:parse_header(H),
 
 	Splitted = hawk_server_lib:split_json_by_part(POST),
-	
+
 	Res = 
 		case Splitted of
 			false ->
@@ -484,8 +514,23 @@ api_action({<<"get_by_group">>,  J_data}) ->
 			end;
 		true -> 
 			?get_server_message(<<"get_by_group">>, ?ERROR_INVALID_GROUP_FORMAT)
-	end.
+	end;
 
+%===============================================
+%===========ACTION ON TOKEN
+%===============================================
+api_action({<<"get_token">>,  J_data}) ->
+	Key = proplists:get_value(<<"key">>, J_data),
+	Domains = proplists:get_value(<<"domains">>, J_data),
+	Login = proplists:get_value(<<"login">>, J_data),
+	Salt = proplists:get_value(<<"salt">>, J_data),
+
+	Tokens = get_data_from_worker({get_token, Key, Login, Salt, Domains}),
+	?get_server_message(<<"get_token">>, false, Tokens).
+
+%===============================================
+%===========ACTION ON MESSAGE
+%===============================================
 api_action({<<"send_group_message">>, J_data}, State) ->
 	api_action({"send_group_message", J_data}, State, off_output);
 
@@ -677,5 +722,10 @@ get_to_from_record(J_data) ->
 	end,
 	{U, Gr}.
 
-
+compare_token(Key, Token) ->
+	case ets:lookup(token_storage, Key) of
+		[] -> false;
+		[{_, Token}] -> true;
+		_ -> false
+	end.
 

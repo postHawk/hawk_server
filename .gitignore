@@ -3,5 +3,4 @@ ebin/
 deps/
 data/*
 !data/.gitkeep
-include/env.hrl
 rel/

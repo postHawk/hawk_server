@@ -1,0 +1,7 @@
+ebin/
+!.gitkeep
+deps/
+data/*
+!data/.gitkeep
+include/env.hrl
+rel/

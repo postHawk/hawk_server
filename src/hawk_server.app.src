@@ -1,0 +1,12 @@
+{application, hawk_server,
+ [
+  {description, ""},
+  {vsn, "0.9.0"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { hawk_server_app, []}},
+  {env, []}
+ ]}.

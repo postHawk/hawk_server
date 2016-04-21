@@ -11,4 +11,4 @@ rebar get-deps compile
 erl -name 'hawk_server@127.0.0.1' -boot start_sasl  -setcookie test -kernel inet_dist_listen_min 9000  inet_dist_listen_max 9005
 ```
 
-Инструкцию по настройке клиентских библиотек можно найти по ссылке http://api.post-hawk.com/
+Инструкцию по настройке клиентских библиотек можно найти в [wiki](https://github.com/postHawk/hawk_api/wiki)

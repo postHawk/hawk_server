@@ -111,7 +111,7 @@ get_count_message(Host) ->
 init_message(Host) ->
 	B_host = list_to_binary(Host),
 	
-	{ok, User} = ?get_user_by_domain(B_host),
+	{ok, User} = hawk_server_api_worker:get_user_from_env({<<"domain">>, B_host}),
 
 	case User of
 		false ->

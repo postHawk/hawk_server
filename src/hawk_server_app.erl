@@ -12,7 +12,7 @@
 -include("mac.hrl").
 
 %% Application callbacks
--export([start/2, stop/1]).
+-export([start/2, stop/1, get_app_env/2]).
 
 %% ===================================================================
 %% Application callbacks
@@ -35,3 +35,14 @@ start(_Type, _StartArgs) ->
 stop(_State) ->
 	dets:close(main_user_data),
 	ok.
+
+get_app_env(Opt, Default) ->
+	{ok, App} = application:get_application(?MODULE),
+	case application:get_env(App, Opt) of
+		{ok, Val} -> Val;
+		_ ->
+			case init:get_argument(Opt) of
+				[[Val | _]] -> Val;
+				error -> Default
+			end
+	end.

@@ -11,6 +11,7 @@
 -include("mac.hrl").
 
 -export([init/1, start_link/0, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([get_user_from_env/1]).
 
 %% ====================================================================
 %% API functions
@@ -104,13 +105,8 @@ api_action({add_user, _Key}, User) ->
 	Login = maps:get (<<"login">>, User),
 	U_hosts = maps:get(<<"domain">>, User),
 	ApiKey = maps:get(<<"key">>, User),
-
-	case dets:lookup(main_user_data, Login) of
-		[] ->
-			dets:insert(main_user_data, {Login, U_hosts, ApiKey});
-		_ ->
-			true
-	end,
+	%обновялем пользователя в любом случае
+	dets:insert(main_user_data, {Login, U_hosts, ApiKey}),
 	{ok, Login};
 
 %% @doc Возвращает пользователя
@@ -142,9 +138,6 @@ get_client_api_key() ->
 	Mac = crypto:hash(md5, Str),
 	base64:encode(Mac).
 
-get_user_by_key(Key) ->
-	?get_user_by_key(Key).
-
 add_user_domain(Login, Domain)->
 	case dets:lookup(main_user_data, Login) of
 		[] ->
@@ -162,3 +155,23 @@ remove_user_domain(Login, Domain) ->
 			NewList = lists:delete(Domain, Hosts),
 			dets:insert(main_user_data, {Login, NewList, Ukey})
 	end.
+
+get_user_by_key(Key) -> get_user_from_env({<<"key">>, Key}).
+
+get_user_from_env(Criteria) ->
+	User = hawk_server_app:get_app_env(user, #{}),
+	{Key, EValue} = Criteria,
+
+	case get_value_from_user(maps:get(Key, User), EValue) of
+		true -> {ok, User};
+		_ -> {ok, #{}}
+	end.
+
+get_value_from_user({badkey,_Key}, _Value) -> false;
+get_value_from_user(Value, EValue) when is_list(Value) ->
+	Mem = lists:member(EValue, Value),
+	if
+		Mem == true -> true;
+		true        -> false
+	end;
+get_value_from_user(Value, EValue) -> Value == EValue.

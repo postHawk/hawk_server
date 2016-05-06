@@ -1,12 +1,22 @@
 {application, hawk_server,
- [
-  {description, ""},
-  {vsn, "0.9.0"},
-  {registered, []},
-  {applications, [
-                  kernel,
-                  stdlib
-                 ]},
-  {mod, { hawk_server_app, []}},
-  {env, []}
- ]}.
+    [
+        {description, ""},
+        {vsn, "0.9.0"},
+        {registered, []},
+        {applications, [
+            kernel,
+            stdlib
+        ]},
+        {mod, { hawk_server_app, []}},
+        {env, [
+            {statistic, [{use, false}]},
+            {user, #{
+                <<"login">> => <<"user_login">>,
+                <<"domain">> => [
+                    <<"my.domain.com">>
+                ],
+                <<"key">> => <<"very secryet key">>
+            }}
+        ]}
+    ]
+}.

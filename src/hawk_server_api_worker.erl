@@ -45,8 +45,8 @@ handle_cast({From, Params}, State) ->
 		_ -> Reply = api_action(Params, User)
 	end,
 
-	hawk_server_api_manager:restore_worker(self()),
 	gen_server:reply(From, Reply),
+	hawk_server_api_manager:restore_worker(self()),
 	{noreply, State};
 
 handle_cast(terminate, State) -> {stop, normal, State}.
@@ -80,6 +80,10 @@ api_action({del_domain, Key, Domain, Login}, _User) ->
 			false
 	end;
 
+%% @doc Проверяет регистрацию домена в системе
+api_action({check_user_domains, _Key, Domains, _Login}, User) ->
+	check_user_domains(maps:get(<<"domain">>, User), Domains);
+
 %% @doc Проверяет полную регистрацию пользователя на домене
 api_action({check_user_by_domain, _Key, _Id, Domain}, User) ->
 	Mlogin = maps:get(<<"login">>, User),
@@ -96,10 +100,6 @@ api_action({check_user_by_domain, _Key, _Id, Domain}, User) ->
 			end
 	end;
 
-%% @doc Проверяет регистрацию домена в системе
-api_action({check_user_domains, _Key, Domains, _Login}, User) ->
-	check_user_domains(maps:get(<<"domain">>, User), Domains);
-
 %% @doc Регистрация пользователя
 api_action({add_user, _Key}, User) ->
 	Login = maps:get (<<"login">>, User),
@@ -113,23 +113,19 @@ api_action({add_user, _Key}, User) ->
 api_action({get_user, _Key}, User) ->
 	{ok, User}.
 
-
--spec check_user_domains(UDomains :: [binary()], Domains :: [binary()]) -> boolean().
-%% @doc Проверяет входит ли домен пользователя в список зарегистрированных
-check_user_domains(UDomains, Domains) when is_list(Domains) and is_list(UDomains) ->
-	case string:str(lists:sort(UDomains), lists:sort(Domains)) of
-		0 -> false;
-		_ -> true
-	end;
-
-check_user_domains(_UDomains, _Domains) -> false.
-
 handle_info(_Data, State) -> {noreply, State}.
 handle_call(_Msg, _From, State) -> {noreply, State}.
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 terminate(_Reason, _State) -> ok.
 
 %=================API FUNCTION===========================================
+
+-spec check_user_domains(UDomains :: [binary()], Domains :: [binary()]) -> boolean().
+%% @doc Проверяет входит ли домен пользователя в список зарегистрированных
+check_user_domains(UDomains, Domains) when is_list(Domains) and is_list(UDomains) ->
+	lists:all(fun(D) -> lists:member(D, UDomains) end, Domains);
+
+check_user_domains(_UDomains, _Domains) -> false.
 
 get_client_api_key() ->
 	{{Year, Month, Day}, {Hour, _, _}} = erlang:localtime_to_universaltime(erlang:localtime()),

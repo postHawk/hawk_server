@@ -103,14 +103,14 @@ handle_cast({restore_worker, Pid}, #state{worker_pool=Pool, worker_count=WCount}
 
 	{noreply, NewState};
 
-handle_cast(_Msg, State) -> {noreply, State}.
+handle_cast(Msg, State) -> error_logger:info_msg("unrecognized cast with data ~p ~n", [Msg]), {noreply, State}.
 handle_info(_Info, State) -> {noreply, State}.
 terminate(_Reason, _State) -> ok.
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 -spec restore_worker(pid()) -> ok.
 %% @doc возвращает отработавший процесс в режим ожидания
-restore_worker(Pid)  when is_pid(Pid) -> gen_server:cast(?MODULE, {restore_worker, Pid});
+restore_worker(Pid)  when is_pid(Pid) -> gen_server:cast({global, ?MODULE}, {restore_worker, Pid});
 restore_worker(Pid) -> error_logger:info_msg("unrecognized call with data ~p ~n", [Pid]).
 
 -spec add_to_queue(pid(), State :: #state{}) -> ok.
